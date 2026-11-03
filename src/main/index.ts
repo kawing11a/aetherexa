@@ -1,5 +1,6 @@
 import { app, BrowserWindow } from 'electron';
 import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { createMainWindow } from './window.js';
 import { registerHandlers, type ApplicationServices } from './ipc/register-handlers.js';
@@ -11,6 +12,10 @@ import { KnownHostsStore } from './ssh/known-hosts-store.js';
 import { SshSessionManager } from './ssh/ssh-session-manager.js';
 import { TerminalSessionManager } from './terminal/terminal-session-manager.js';
 import { SftpSessionManager } from './sftp/sftp-session-manager.js';
+
+const require = createRequire(import.meta.url);
+if (require('electron-squirrel-startup')) app.quit();
+app.setAppUserModelId('com.squirrel.UnifiedProductivity.UnifiedProductivity');
 
 const explicitDataDirectory = process.env.UNIFIED_PRODUCTIVITY_DATA_DIR?.trim();
 if (explicitDataDirectory) { const resolvedDataDirectory = resolve(explicitDataDirectory); mkdirSync(resolvedDataDirectory, { recursive: true }); app.setPath('userData', resolvedDataDirectory); }

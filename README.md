@@ -23,7 +23,7 @@ npm run dev
 npm run package
 ```
 
-The portable ZIP is produced under `release/make/zip/win32/x64/`. Packaging creates a local package and does not publish or sign it.
+Each `npm run package` creates the Squirrel EXE installer, WiX MSI installer, and portable ZIP under `release/make/`. Install WiX Toolset v3.14.1 first; the packaging script checks `WIX3_HOME`, standard install paths, and the local build-tools cache. Packaging creates local artifacts and does not publish or sign them. See [package contents](docs/package-contents.md) for exact paths and prerequisites.
 
 ## Data location
 

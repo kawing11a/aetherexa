@@ -7,7 +7,10 @@ Initial dependency set for the Windows desktop shell. Versions are exact pins fr
 | `electron` | 45.2.1 | MIT | Desktop runtime |
 | `electron-vite` | 6.0.0 | MIT | Main, preload, and renderer build |
 | `@electron-forge/cli` | 8.0.1 | MIT | Application packaging orchestration |
+| `@electron-forge/maker-squirrel` | 8.0.1 | MIT | Windows per-user EXE installer |
+| `@electron-forge/maker-wix` | 8.0.1 | MIT | Windows MSI package; uses WiX Toolset v3 |
 | `@electron-forge/maker-zip` | 8.0.1 | MIT | Windows x64 portable ZIP package |
+| `electron-squirrel-startup` | 1.0.1 | MIT | Handles Squirrel install, update, and uninstall startup events |
 | `react` / `react-dom` | 19.3.1 | MIT | UI |
 | `vite` | 8.3.5 | MIT | Renderer tooling |
 | `@vitejs/plugin-react` | 6.2.1 | MIT | React transform |
@@ -37,3 +40,5 @@ Initial dependency set for the Windows desktop shell. Versions are exact pins fr
 | `@types/mssql` | 12.3.0 | MIT | SQL Server driver type declarations |
 | `@types/oracledb` | 26.0.1 | MIT | Oracle driver type declarations |
 | `@types/memjs` | 1.3.3 | MIT | Memcached client type declarations |
+
+Windows installer builds use WiX Toolset v3.14.1. The `package` script searches `WIX3_HOME`, the standard WiX v3 install folders, and `%LOCALAPPDATA%\UnifiedProductivity\build-tools\wix3141`. The official portable binaries are available from the [WiX v3.14.1 release](https://github.com/wixtoolset/wix3/releases/tag/wix3141rtm).

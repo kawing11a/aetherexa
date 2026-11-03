@@ -17,3 +17,10 @@ skip: Automated test harness and test execution are excluded by the user-approve
 review: Independent final security review completed; fixes address packaged renderer URL trust, endpoint-scoped SSH fingerprints, versioned credential pointers, Redis scan-pattern continuation, SQL cancellation result races, SQLite interruption reporting, SFTP exclusive creation, and early SSH disconnect delivery.
 
 skip: Packaged UI smoke launch was blocked by the execution policy when starting the generated executable from PowerShell; the CUA policy also blocked launching PowerShell. ZIP/asar inspection and successful typecheck/build/package are recorded; no app data was opened.
+
+## Installer follow-up
+
+- [x] Add Squirrel Setup.exe and WiX MSI makers to the normal Windows package command; preserve ZIP output.
+- [x] Add Squirrel startup event handling and stable MSI upgrade identity.
+- [x] Pin WiX v3.14.1 locally and create EXE, MSI, and ZIP artifacts from one package run.
+- [x] Document WiX prerequisite, output paths, and unsigned installer status.
