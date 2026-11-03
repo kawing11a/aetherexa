@@ -1,0 +1,28 @@
+import { z } from 'zod';
+
+const session = z.object({ sessionId: z.string().uuid() }).strict();
+export const databaseConnectSchema = z.object({ profileId: z.string().uuid() }).strict();
+export const databaseCloseSchema = session;
+export const namespaceListSchema = session;
+export const objectListSchema = session.extend({ namespace: z.string().max(512) });
+export const runSqlSchema = session.extend({ sql: z.string().min(1).max(500_000), limit: z.number().int().min(1).max(10_000) });
+export const findDocumentsSchema = session.extend({ query: z.object({ database: z.string().min(1).max(255), collection: z.string().min(1).max(255), filter: z.record(z.string().max(255), z.unknown()), projection: z.record(z.string().max(255), z.union([z.literal(0), z.literal(1)])).optional(), limit: z.number().int().min(1).max(10_000) }).strict() });
+export const scanKeysSchema = session.extend({ pattern: z.string().max(1024), cursor: z.string().max(128), count: z.number().int().min(1).max(1000) });
+export const redisCommandSchema = session.extend({ tokens: z.array(z.string().max(16_384)).min(1).max(100) }).refine((input) => input.tokens.reduce((total, token) => total + new TextEncoder().encode(token).byteLength, 0) <= 65_536, { message: 'Command exceeds the size limit.' });
+export const memcachedStatsSchema = session;
+export const memcachedKeySchema = session.extend({ key: z.string().min(1).max(250) });
+export const memcachedSetSchema = session.extend({ value: z.object({ key: z.string().min(1).max(250), value: z.union([z.string(), z.instanceof(Uint8Array)]), ttlSeconds: z.number().int().min(0).max(2_592_000) }).strict() }).refine((input) => typeof input.value.value === 'string' ? new TextEncoder().encode(input.value.value).byteLength <= 1_048_576 : input.value.value.byteLength <= 1_048_576, { message: 'Value exceeds the 1 MiB limit.' });
+
+export const sshConnectSchema = z.object({ profileId: z.string().uuid() }).strict();
+export const hostKeyReviewSchema = z.object({ requestId: z.string().uuid(), accept: z.boolean(), replaceChangedKey: z.boolean().optional() }).strict();
+export const terminalOpenSchema = z.object({ sessionId: z.string().uuid(), cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(200) }).strict();
+export const localTerminalOpenSchema = z.object({ cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(200) }).strict();
+export const terminalIdSchema = z.object({ terminalId: z.string().uuid() }).strict();
+export const terminalWriteSchema = terminalIdSchema.extend({ data: z.string().max(16384) }).strict();
+export const terminalResizeSchema = terminalIdSchema.extend({ cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(200) }).strict();
+export const sftpOpenSchema = z.object({ sessionId: z.string().uuid() }).strict();
+export const sftpListSchema = z.object({ sftpId: z.string().uuid(), path: z.string().max(4096) }).strict();
+export const sftpRenameSchema = z.object({ sftpId: z.string().uuid(), from: z.string().max(4096), to: z.string().max(4096) }).strict();
+export const sftpRemoveSchema = z.object({ sftpId: z.string().uuid(), path: z.string().max(4096), directory: z.boolean() }).strict();
+export const sftpPathSchema = z.object({ sftpId: z.string().uuid(), path: z.string().max(4096) }).strict();
+export const sftpTransferSchema = z.object({ sftpId: z.string().uuid(), remotePath: z.string().min(1).max(4096) }).strict();

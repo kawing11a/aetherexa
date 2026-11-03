@@ -1,0 +1,12 @@
+node_modules/
+out/
+make/
+*.log
+.env*
+!.env.example
+.audit/*.cjs
+.audit/*.tmp
+.audit/*.patch
+.package-app/
+release/
+.smoke-appdata/

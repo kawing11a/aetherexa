@@ -35,7 +35,7 @@
 - `src/main/index.ts` starts Electron and delegates window construction to `createMainWindow()`.
 - `src/renderer/App.tsx` is the renderer root and initially renders `AppShell`.
 
-- [ ] Create the package manifest with scripts `dev`, `build`, `package`, and `typecheck`; do not add test scripts.
+- [ ] Create the package manifest with scripts `dev`, `build`, `package`, and `typecheck`; use Electron Forge's ZIP maker for the Windows package, and do not add test scripts.
 - [ ] Configure separate main, preload, and renderer TypeScript build entries in `electron.vite.config.ts`.
 - [ ] Set strict TypeScript options and explicit aliases for `@shared`, `@main`, and `@renderer`.
 - [ ] Add the minimal main, preload, and React entry files with typed imports and no direct privileged calls from the renderer.

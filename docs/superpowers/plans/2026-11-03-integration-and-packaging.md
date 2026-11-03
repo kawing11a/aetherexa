@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` or `superpowers:subagent-driven-development` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Integrate all workspaces into one navigable application and produce a Windows installable build with documented setup and recovery behavior.
+**Goal:** Integrate all workspaces into one navigable application and produce a Windows x64 portable package with documented setup and recovery behavior.
 
 **Architecture:** The shell routes profile selections to typed workspace descriptors. Packaging is reproducible from the locked dependency graph and includes required native modules, driver assets, and license notices.
 
@@ -41,20 +41,20 @@
 ### Task 2: Package the Windows application
 
 **Files:**
-- Create: `electron-builder.yml`
+- Create: `forge.config.ts`
 - Create: `docs/package-contents.md`
 - Modify: `package.json`
 - Modify: `docs/dependencies.md`
 - Modify: `.gitignore`
 
 **Interfaces:**
-- `npm run package:win` creates a Windows x64 installer and unpacked application folder.
+- `npm run package` creates a Windows x64 portable ZIP and packaged application folder through Electron Forge's ZIP maker.
 - `docs/package-contents.md` documents required runtime files and the files excluded from packages, including `.env`, local profiles, secret stores, and development-only files.
 
-- [ ] Select the packager and exact native-module rebuild flow after checking Electron ABI compatibility for selected drivers and PTY support.
+- [ ] Configure Electron Forge's ZIP maker and the exact native-module rebuild flow after checking Electron ABI compatibility for selected drivers and PTY support.
 - [ ] Record dependency licenses and any required Oracle/SQL Server client prerequisites in `docs/dependencies.md` and the user guide.
 - [ ] Exclude profile data, logs, local test fixtures, and development credentials from all package targets.
-- [ ] Configure app identity, version, installer output path, and uninstall behavior without adding auto-update or network telemetry.
+- [ ] Configure app identity, version, portable ZIP output path, and startup behavior without adding auto-update or network telemetry.
 
 ### Task 3: Write product and recovery documentation
 
