@@ -2,7 +2,7 @@
 
 ## First launch and profiles
 
-Create a database or SSH profile from the sidebar. Profiles are stored locally. Passwords and private-key passphrases are entered into the secure credential field; leaving a credential blank while editing keeps its existing saved value. SQLite profiles point to a local database file.
+Create a database or SSH profile from the sidebar. SSH authentication offers Password, Public Key, and SSH Agent. Public Key mode reads the matching private key file locally; its optional passphrase is entered into the secure credential field. Database passwords are entered into the secure credential field; leaving a credential blank while editing keeps its existing saved value. SQLite profiles point to a local database file.
 
 ## Database workspaces
 

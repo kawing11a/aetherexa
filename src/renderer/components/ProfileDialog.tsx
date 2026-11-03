@@ -163,8 +163,8 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
                       <span>Authentication</span>
                       <select value={authMode} onChange={(event) => setAuthMode(event.target.value as AuthMode)}>
                         <option value="password">Password</option>
-                        <option value="private-key-file">Private key file</option>
-                        <option value="agent">SSH agent</option>
+                        <option value="private-key-file">Public Key</option>
+                        <option value="agent">SSH Agent</option>
                       </select>
                     </label>
                     {authMode === 'private-key-file' && (
@@ -172,6 +172,7 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
                         <label className="field field-wide">
                           <span>Private key path</span>
                           <input required value={privateKeyPath} onChange={(event) => setPrivateKeyPath(event.target.value)} placeholder="C:\\Users\\you\\.ssh\\id_ed25519" />
+                          <small>Select the private key matching the public key authorized on the SSH server.</small>
                         </label>
                         <label className="field field-wide">
                           <span>Key passphrase <em>{profile ? 'Leave blank to keep saved passphrase' : 'Optional'}</em></span>
@@ -209,6 +210,3 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
     </div>
   );
 }
-
-
-
