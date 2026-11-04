@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { ProfileSaveInput } from '@shared/contracts';
-import type { ConnectionProfile, DatabaseEngine } from '@shared/profiles';
+import type { ConnectionCatalog, ConnectionProfile, DatabaseEngine } from '@shared/profiles';
 import type { SshKeyMetadata } from '@shared/profiles';
 import { SshKeyManagerDialog } from './SshKeyManagerDialog.js';
+import { ConnectionGroupField } from './ConnectionGroupField.js';
 
 type ProfileKind = 'database' | 'ssh';
 type AuthMode = 'password' | 'private-key-file' | 'agent';
@@ -13,6 +14,14 @@ type ProfileDialogProps = {
   profile?: ConnectionProfile;
   onClose(): void;
   onSave(input: ProfileSaveInput): Promise<boolean>;
+  visible?: boolean;
+  groups?: string[];
+  templates?: ConnectionCatalog['templates'];
+  reusableValues?: ConnectionCatalog['reusableValues'];
+  profiles?: ConnectionProfile[];
+  onBack?(): void;
+  onSaveTemplate?(template: ConnectionCatalog['templates'][number]): Promise<boolean>;
+  onCreateGroup?(name: string): Promise<boolean>;
 };
 
 const engines: { value: DatabaseEngine; label: string; defaultPort: number }[] = [
@@ -26,7 +35,7 @@ const engines: { value: DatabaseEngine; label: string; defaultPort: number }[] =
   { value: 'memcached', label: 'Memcached', defaultPort: 11211 },
 ];
 
-export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: ProfileDialogProps) {
+export function ProfileDialog({ kind: initialKind, profile, onClose, onSave, visible = true, groups = [], templates = [], reusableValues = [], profiles = [], onBack, onSaveTemplate, onCreateGroup }: ProfileDialogProps) {
   const [kind, setKind] = useState<ProfileKind>(profile?.kind === 'ssh' ? 'ssh' : profile?.kind === 'database' ? 'database' : initialKind);
   const [engine, setEngine] = useState<DatabaseEngine>(profile?.kind === 'database' ? profile.engine : 'postgres');
   const [name, setName] = useState(profile?.name ?? '');
@@ -45,6 +54,7 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
   const [showKeyManager, setShowKeyManager] = useState(false);
   const [saving, setSaving] = useState(false);
   const isSqlite = kind === 'database' && engine === 'sqlite';
+  useEffect(() => { if (!profile) setKind(initialKind); }, [initialKind, profile]);
   useEffect(() => { if (kind === 'ssh') void window.productivityApi.sshKeys.list().then((result) => { if (result.ok) setKeys(result.value); }); }, [kind]);
 
   function selectEngine(nextEngine: DatabaseEngine) {
@@ -100,20 +110,51 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
     if (saved) onClose();
   }
 
+  async function useTemplate(id: string) {
+    const template = templates.find((item) => item.id === id && item.target === (kind === 'ssh' ? 'ssh' : `database:${engine}`));
+    if (!template) return;
+    const fields = template.fields;
+    if (kind === 'database') {
+      const targetEngine = template.target.slice('database:'.length) as DatabaseEngine;
+      setEngine(targetEngine);
+      setHost(String(fields.host ?? '')); setPort(String(fields.port ?? engines.find((item) => item.value === targetEngine)?.defaultPort ?? 0));
+      setDatabase(String(fields.database ?? fields.path ?? '')); setUsername(String(fields.username ?? '')); setSecure(Boolean(fields.tls ?? true));
+    } else { setHost(String(fields.host ?? '')); setPort(String(fields.port ?? 22)); setUsername(String(fields.username ?? '')); }
+  }
+
+  function useSavedProfile(id: string) {
+    const source = profiles.find((item) => item.id === id && (kind === 'ssh' ? item.kind === 'ssh' : item.kind === 'database' && item.engine === engine));
+    if (!source) return;
+    setGroup(source.groupId ?? '');
+    if (source.kind === 'ssh') { setHost(source.host); setPort(String(source.port)); setUsername(source.username); setAuthMode('password'); setPrivateKeyPath(''); setKeyFingerprint(''); setPassword(''); setPassphrase(''); }
+    else if (source.kind === 'database') {
+      setHost(String(source.options.host ?? '')); setPort(String(source.options.port ?? 0)); setDatabase(String(source.options.path ?? source.options.database ?? ''));
+      setUsername(String(source.options.username ?? '')); setSecure(Boolean(source.options.tls ?? true)); setPassword(''); setPassphrase('');
+    }
+  }
+
+  async function saveTemplate() {
+    const templateName = window.prompt('Name this connection template:')?.trim();
+    if (!templateName || !onSaveTemplate) return;
+    const target = kind === 'ssh' ? 'ssh' : `database:${engine}` as const;
+    const fields: Record<string, string | number | boolean> = kind === 'ssh' ? { host: host.trim(), port: Number(port), username: username.trim() } : isSqlite ? { path: database.trim() } : { host: host.trim(), port: Number(port), database: database.trim(), username: username.trim(), tls: secure };
+    await onSaveTemplate({ id: crypto.randomUUID(), name: templateName, target, fields });
+  }
+
   return (
     <>
-    <div className="dialog-scrim" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="dialog-scrim" style={{ display: visible ? undefined : 'none' }} role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-dialog-title">
         <div className="dialog-heading">
           <div>
-            <p className="eyebrow">Connection profile</p>
+            <p className="eyebrow">{onBack && !profile ? 'New connection · Step 2 of 2' : 'Connection profile'}</p>
             <h2 id="profile-dialog-title">{profile ? 'Edit' : 'Add'} {kind === 'database' ? 'database' : 'SSH'} connection</h2>
           </div>
           <button className="icon-button" aria-label="Close dialog" onClick={onClose}>×</button>
         </div>
 
         <form onSubmit={submit}>
-          {!profile && <div className="dialog-kind-switch" aria-label="Profile type">
+          {!profile && !onBack && <div className="dialog-kind-switch" aria-label="Profile type">
             <button type="button" className={kind === 'database' ? 'selected' : ''} onClick={() => setKind('database')}>
               Database
             </button>
@@ -122,15 +163,17 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
             </button>
           </div>}
 
+          {!profile && <div className="form-grid wizard-reuse-row">
+            <label className="field field-wide"><span>Start from a saved connection</span><select defaultValue="" onChange={(event) => useSavedProfile(event.target.value)}><option value="">Choose a compatible profile…</option>{profiles.filter((item) => kind === 'ssh' ? item.kind === 'ssh' : item.kind === 'database' && item.engine === engine).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label className="field field-wide"><span>Or start from a template</span><select defaultValue="" onChange={(event) => void useTemplate(event.target.value)}><option value="">Choose a saved template…</option>{templates.filter((item) => item.target === (kind === 'ssh' ? 'ssh' : `database:${engine}`)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          </div>}
+
           <div className="form-grid">
             <label className="field field-wide">
               <span>Connection name</span>
               <input autoFocus required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} placeholder="Production database" />
             </label>
-            <label className="field field-wide">
-              <span>Group <em>Optional</em></span>
-              <input maxLength={80} value={group} onChange={(event) => setGroup(event.target.value)} placeholder="Team or environment" />
-            </label>
+            <ConnectionGroupField value={group} groups={groups} onChange={setGroup} onCreate={onCreateGroup ?? (async (name) => { const result = await window.productivityApi.connectionCatalog.change({ type: 'create-group', name }); return result.ok; })} />
 
             {kind === 'database' && (
               <label className="field field-wide">
@@ -144,25 +187,25 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
             {isSqlite ? (
               <label className="field field-wide">
                 <span>Database file path</span>
-                <input required value={database} onChange={(event) => setDatabase(event.target.value)} placeholder="C:\\data\\app.db" />
+                <input required list={`reusable-${kind}-${engine}-path`} value={database} onChange={(event) => setDatabase(event.target.value)} placeholder="C:\\data\\app.db" />
               </label>
             ) : (
               <>
                 <label className="field field-wide">
                   <span>Host</span>
-                  <input required value={host} onChange={(event) => setHost(event.target.value)} placeholder="db.example.com" />
+                  <input required list={`reusable-${kind}-${kind === 'database' ? engine : 'ssh'}-host`} value={host} onChange={(event) => setHost(event.target.value)} placeholder="db.example.com" />
                 </label>
                 <label className="field">
                   <span>Port</span>
-                  <input required inputMode="numeric" value={port} onChange={(event) => setPort(event.target.value)} />
+                  <input required list={`reusable-${kind}-${kind === 'database' ? engine : 'ssh'}-port`} inputMode="numeric" value={port} onChange={(event) => setPort(event.target.value)} />
                 </label>
                 <label className="field">
                   <span>{kind === 'database' && engine === 'redis' ? 'Database index' : 'Database / service'} <em>Optional</em></span>
-                  <input value={database} onChange={(event) => setDatabase(event.target.value)} placeholder={kind === 'database' && engine === 'redis' ? '0' : 'app'} />
+                  <input list={`reusable-${kind}-${kind === 'database' ? engine : 'ssh'}-database`} value={database} onChange={(event) => setDatabase(event.target.value)} placeholder={kind === 'database' && engine === 'redis' ? '0' : 'app'} />
                 </label>
                 <label className="field field-wide">
                   <span>Username <em>{kind === 'database' && ['mysql', 'postgres', 'sqlserver', 'oracle'].includes(engine) ? 'Required' : 'Optional'}</em></span>
-                  <input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" />
+                  <input list={`reusable-${kind}-${kind === 'database' ? engine : 'ssh'}-username`} autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" />
                 </label>
 
                 {kind === 'ssh' ? (
@@ -209,12 +252,16 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
 
           <p className="dialog-security-note"><span aria-hidden="true">▣</span> Credentials are encrypted locally and never included in profile exports.</p>
           <div className="dialog-footer">
+            {!profile && onSaveTemplate && <button type="button" className="button button-secondary" onClick={() => void saveTemplate()}>Save as template</button>}
+            {onBack && !profile && <button type="button" className="button button-subtle" onClick={onBack}>Back</button>}
             <button type="button" className="button button-subtle" onClick={onClose}>Cancel</button>
             <button type="submit" className="button button-primary" disabled={saving || !name.trim() || (!isSqlite && !host.trim()) || (kind === 'ssh' && !username.trim()) || (kind === 'database' && ['mysql', 'postgres', 'sqlserver', 'oracle'].includes(engine) && !username.trim())}>
               {saving ? 'Saving…' : profile ? 'Save changes' : 'Save connection'}
             </button>
           </div>
         </form>
+        <datalist id={`reusable-${kind}-${kind === 'database' ? engine : 'ssh'}-host`}>{reusableValues.filter((item) => item.field === 'host' && item.target === (kind === 'ssh' ? 'ssh' : `database:${engine}`)).map((item, index) => <option key={`${item.target}-${index}`} value={String(item.value)} />)}</datalist>
+        {(['database', 'username', 'port', 'path'] as const).map((field) => <datalist id={`reusable-${kind}-${kind === 'database' ? engine : 'ssh'}-${field}`} key={field}>{reusableValues.filter((item) => item.field === field && item.target === (kind === 'ssh' ? 'ssh' : `database:${engine}`)).map((item, index) => <option key={`${item.target}-${index}`} value={String(item.value)} />)}</datalist>)}
       </section>
     </div>
     {showKeyManager && <SshKeyManagerDialog initialLabel={name} defaultImportPath={privateKeyPath || undefined} onClose={() => setShowKeyManager(false)} onSelect={(key) => { setKeys((current) => current.some((item) => item.fingerprint === key.fingerprint) ? current.map((item) => item.fingerprint === key.fingerprint ? key : item) : [...current, key]); setKeyFingerprint(key.fingerprint); setPrivateKeyPath(''); setShowKeyManager(false); }} />}

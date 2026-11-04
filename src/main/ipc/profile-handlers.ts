@@ -21,7 +21,7 @@ const emptyRequest = z.object({}).strict();
 
 export function registerProfileHandlers(window: BrowserWindow, profileStore: ProfileStore, secretStore: SecretStore, databases: DatabaseSessionManager, ssh: SshSessionManager, sftp: SftpSessionManager, terminals: TerminalSessionManager, knownHosts: KnownHostsStore, sshKeys: SshKeyManager, files: FileSessionManager): void {
 
-  for (const channel of ['profiles:list', 'profiles:save', 'profiles:remove']) {
+  for (const channel of ['profiles:list', 'profiles:save', 'profiles:remove', 'connection-catalog:load', 'connection-catalog:change']) {
     ipcMain.removeHandler(channel);
   }
 
@@ -29,6 +29,17 @@ export function registerProfileHandlers(window: BrowserWindow, profileStore: Pro
     assertTrustedSender(event, window);
     emptyRequest.parse(input);
     return profileStore.list();
+  }));
+
+  ipcMain.handle('connection-catalog:load', (event, input: unknown) => runResult(async () => {
+    assertTrustedSender(event, window);
+    emptyRequest.parse(input);
+    return profileStore.catalog();
+  }));
+
+  ipcMain.handle('connection-catalog:change', (event, input: unknown) => runResult(async () => {
+    assertTrustedSender(event, window);
+    return profileStore.changeCatalog(input);
   }));
 
   ipcMain.handle('profiles:save', (event, input: unknown) => runResult(async () => {

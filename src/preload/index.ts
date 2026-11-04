@@ -65,6 +65,10 @@ const productivityApi: ProductivityApi = {
     save: (input) => ipcRenderer.invoke('profiles:save', input),
     remove: (id) => ipcRenderer.invoke('profiles:remove', { id }),
   },
+  connectionCatalog: {
+    load: () => ipcRenderer.invoke('connection-catalog:load', {}),
+    change: (input) => ipcRenderer.invoke('connection-catalog:change', input),
+  },
   connectionDirectory: {
     get: () => ipcRenderer.invoke('connection-directory:get', {}),
     choose: () => ipcRenderer.invoke('connection-directory:choose', {}),

@@ -67,6 +67,54 @@ export const fileTransferProfileSchema = z.union([remoteFileTransferProfileSchem
 
 export const connectionProfileSchema = z.union([databaseProfileSchema, sshProfileSchema, fileTransferProfileSchema]);
 
+export const connectionTargetSchema = z.enum([
+  'database:mysql', 'database:postgres', 'database:sqlserver', 'database:oracle', 'database:sqlite', 'database:mongodb', 'database:redis', 'database:memcached',
+  'ssh', 'file-transfer:sftp', 'file-transfer:ftp', 'file-transfer:ftps-explicit', 'file-transfer:ftps-implicit', 'file-transfer:s3',
+]);
+export type ConnectionTarget = z.infer<typeof connectionTargetSchema>;
+
+export const reusableFieldSchema = z.object({
+  target: connectionTargetSchema,
+  field: z.string().min(1).max(80),
+  value: z.union([z.string().max(4096), z.number().finite(), z.boolean()]),
+}).strict().refine(({ target, field }) => reusableFields[target].includes(field), { message: 'This field cannot be reused.' });
+
+export const setupTemplateSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(80),
+  target: connectionTargetSchema,
+  fields: z.record(z.string().max(80), z.union([z.string().max(4096), z.number().finite(), z.boolean()])),
+}).strict().superRefine((template, context) => {
+  if (!Object.keys(template.fields).every((field) => reusableFields[template.target].includes(field))) context.addIssue({ code: 'custom', message: 'Template contains a field that cannot be reused.' });
+});
+
+export const reusableFields: Record<ConnectionTarget, string[]> = {
+  'database:mysql': ['host', 'port', 'database', 'username', 'tls'], 'database:postgres': ['host', 'port', 'database', 'username', 'tls'],
+  'database:sqlserver': ['host', 'port', 'database', 'username', 'tls'], 'database:oracle': ['host', 'port', 'database', 'username', 'tls'],
+  'database:sqlite': ['path'], 'database:mongodb': ['host', 'port', 'database', 'username', 'tls'],
+  'database:redis': ['host', 'port', 'database', 'username', 'tls'], 'database:memcached': ['host', 'port'],
+  ssh: ['host', 'port', 'username'], 'file-transfer:sftp': ['host', 'port', 'username'], 'file-transfer:ftp': ['host', 'port', 'username'],
+  'file-transfer:ftps-explicit': ['host', 'port', 'username'], 'file-transfer:ftps-implicit': ['host', 'port', 'username'], 'file-transfer:s3': ['bucket', 'region'],
+};
+
+export const connectionCatalogSchema = z.object({
+  groups: z.array(z.string().trim().min(1).max(80)).max(500),
+  templates: z.array(setupTemplateSchema).max(500),
+  reusableValues: z.array(reusableFieldSchema).max(5000),
+}).strict().refine((catalog) => new Set(catalog.groups).size === catalog.groups.length, { message: 'Group names must be unique.' })
+  .refine((catalog) => new Set(catalog.templates.map((template) => template.id)).size === catalog.templates.length, { message: 'Template IDs must be unique.' });
+export type ConnectionCatalog = z.infer<typeof connectionCatalogSchema>;
+
+export const catalogChangeSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('create-group'), name: z.string().trim().min(1).max(80) }).strict(),
+  z.object({ type: z.literal('rename-group'), from: z.string().trim().min(1).max(80), to: z.string().trim().min(1).max(80) }).strict(),
+  z.object({ type: z.literal('remove-group'), name: z.string().trim().min(1).max(80) }).strict(),
+  z.object({ type: z.literal('put-template'), template: z.unknown() }).strict(),
+  z.object({ type: z.literal('remove-template'), id: z.string().uuid() }).strict(),
+  z.object({ type: z.literal('remember-fields'), values: z.array(z.unknown()).max(32) }).strict(),
+]);
+export type CatalogChange = z.infer<typeof catalogChangeSchema>;
+
 export const secretBundleSchema = z.record(
   z.string().trim().min(1).max(80),
   z.string().max(65536),
