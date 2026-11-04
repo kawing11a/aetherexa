@@ -33,6 +33,10 @@ export interface ProductivityApi {
     save(input: ProfileSaveInput): Promise<Result<void>>;
     remove(id: string): Promise<Result<void>>;
   };
+  connectionCatalog: {
+    load(): Promise<Result<import('./profiles.js').ConnectionCatalog>>;
+    change(input: import('./profiles.js').CatalogChange): Promise<Result<import('./profiles.js').ConnectionCatalog>>;
+  };
   connectionDirectory: {
     get(): Promise<Result<{ directory: string }>>;
     choose(): Promise<Result<string | null>>;

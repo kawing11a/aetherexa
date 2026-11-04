@@ -2,21 +2,25 @@ import type { ConnectionProfile } from '@shared/profiles';
 
 type ConnectionSidebarProps = {
   profiles: ConnectionProfile[];
+  groups: string[];
   activeProfileId: string | null;
   query: string;
   onOpen(id: string): void;
   onAddDatabase(): void;
   onAddSsh(): void;
+  onManageGroups(): void;
   onRemove(profile: ConnectionProfile): void;
 };
 
 export function ConnectionSidebar({
   profiles,
+  groups: knownGroups,
   activeProfileId,
   query,
   onOpen,
   onAddDatabase,
   onAddSsh,
+  onManageGroups,
   onRemove,
 }: ConnectionSidebarProps) {
   const search = query.trim().toLocaleLowerCase();
@@ -25,11 +29,11 @@ export function ConnectionSidebar({
       .toLocaleLowerCase()
       .includes(search),
   );
-  const groups = new Map<string, ConnectionProfile[]>();
+  const groupedProfiles = new Map<string, ConnectionProfile[]>();
 
   for (const profile of filtered) {
     const groupName = profile.groupId || 'Ungrouped';
-    groups.set(groupName, [...(groups.get(groupName) ?? []), profile]);
+    groupedProfiles.set(groupName, [...(groupedProfiles.get(groupName) ?? []), profile]);
   }
 
   return (
@@ -44,20 +48,23 @@ export function ConnectionSidebar({
 
       <div className="sidebar-actions">
         <button className="button button-primary button-small" onClick={onAddDatabase}>
-          <span aria-hidden="true">＋</span> Database
+          <span aria-hidden="true">＋</span> Data
         </button>
         <button className="button button-subtle button-small" onClick={onAddSsh}>
           <span aria-hidden="true">＋</span> SSH host
         </button>
+        <button className="button button-subtle button-small" onClick={onManageGroups}>Groups</button>
       </div>
 
       <nav className="profile-list" aria-label="Saved connection profiles">
-        {groups.size === 0 ? (
+        {groupedProfiles.size === 0 && knownGroups.length === 0 ? (
           <div className="sidebar-empty">
             {profiles.length === 0 ? 'Your saved profiles will appear here.' : 'No matching profiles.'}
           </div>
         ) : (
-          [...groups.entries()].map(([groupName, items]) => (
+          [...new Set([...knownGroups, ...groupedProfiles.keys(), 'Ungrouped'])].filter((groupName) => !search || groupedProfiles.has(groupName)).map((groupName) => {
+            const items = groupedProfiles.get(groupName) ?? [];
+            return (
             <section className="profile-group" key={groupName}>
               <div className="profile-group-title">
                 <span className="group-caret" aria-hidden="true">⌄</span>
@@ -88,7 +95,7 @@ export function ConnectionSidebar({
                 </div>
               ))}
             </section>
-          ))
+          );})
         )}
       </nav>
 

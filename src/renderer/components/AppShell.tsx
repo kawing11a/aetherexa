@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ConnectionProfile } from '@shared/profiles';
+import type { ConnectionCatalog, ConnectionProfile } from '@shared/profiles';
 import type { ProfileSaveInput, UpdateStatus } from '@shared/contracts';
 import { WorkspaceRouter } from '@renderer/workspaces/WorkspaceRouter.js';
 import { ConnectionSidebar } from './ConnectionSidebar.js';
@@ -11,11 +11,14 @@ import { SettingsDialog } from './SettingsDialog.js';
 import { FileTransferProfileDialog } from './FileTransferProfileDialog.js';
 import aetherexaIcon from '@renderer/assets/aetherexa.png';
 import type { WorkspaceTab } from './WorkspaceTabs.js';
+import { ConnectionWizard } from './ConnectionWizard.js';
+import { GroupManagerDialog } from './GroupManagerDialog.js';
 
 type ProfileKind = 'database' | 'ssh';
 
 export function AppShell() {
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
+  const [catalog, setCatalog] = useState<ConnectionCatalog>({ groups: [], templates: [], reusableValues: [] });
   const [profileVersions, setProfileVersions] = useState<Record<string, number>>({});
   const [openProfileIds, setOpenProfileIds] = useState<string[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
@@ -30,6 +33,14 @@ export function AppShell() {
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showNewConnection, setShowNewConnection] = useState(false);
+  const [wizardTarget, setWizardTarget] = useState<'database' | 'ssh' | 'files' | null>(null);
+  const [showGroups, setShowGroups] = useState(false);
+
+  const refreshCatalog = useCallback(async () => {
+    const result = await window.productivityApi.connectionCatalog.load();
+    if (result.ok) setCatalog(result.value);
+  }, []);
 
   const refreshProfiles = useCallback(async () => {
     const result = await window.productivityApi.profiles.list();
@@ -45,6 +56,7 @@ export function AppShell() {
     const unsubscribeUpdateStatus = window.productivityApi.app.onUpdateStatus(setUpdateStatus);
     void Promise.all([
       refreshProfiles(),
+      refreshCatalog(),
       window.productivityApi.app.getVersion().then((result) => {
         if (result.ok) setVersion(result.value);
       }),
@@ -53,7 +65,7 @@ export function AppShell() {
       }),
     ]).finally(() => setLoading(false));
     return unsubscribeUpdateStatus;
-  }, [refreshProfiles]);
+  }, [refreshProfiles, refreshCatalog]);
 
   const tabs = useMemo<WorkspaceTab[]>(() => openProfileIds.flatMap((id) => {
     const profile = profiles.find((item) => item.id === id);
@@ -62,6 +74,7 @@ export function AppShell() {
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null;
 
   function openProfileDialog(kind: ProfileKind, profile?: ConnectionProfile) {
+    if (!profile) { setShowNewConnection(true); setWizardTarget(null); return; }
     if (profile?.kind === 'file-transfer') { setFileDialogProfile(profile); setShowFileDialog(true); return; }
     setEditingProfile(profile);
     setDialogKind(kind);
@@ -73,7 +86,7 @@ export function AppShell() {
     else openProfileDialog(activeProfile.kind, activeProfile);
   }
 
-  function addFilesProfile() { setFileDialogProfile(undefined); setShowFileDialog(true); }
+  function addFilesProfile() { setShowNewConnection(true); setWizardTarget(null); }
 
   function openProfile(id: string) {
     setOpenProfileIds((ids) => ids.includes(id) ? ids : [...ids, id]);
@@ -94,11 +107,25 @@ export function AppShell() {
       setError(result.error.message);
       return false;
     }
-    await refreshProfiles();
+    await rememberProfileFields(input.profile);
+    await Promise.all([refreshProfiles(), refreshCatalog()]);
     setProfileVersions((versions) => ({ ...versions, [input.profile.id]: (versions[input.profile.id] ?? 0) + 1 }));
     openProfile(input.profile.id);
     setError(null);
     return true;
+  }
+
+  async function rememberProfileFields(profile: ConnectionProfile) {
+    const target = profile.kind === 'database' ? `database:${profile.engine}` : profile.kind === 'ssh' ? 'ssh' : `file-transfer:${profile.protocol}`;
+    const candidates: Record<string, unknown> = profile.kind === 'database'
+      ? { host: profile.options.host, port: profile.options.port, database: profile.options.database, path: profile.options.path, username: profile.options.username, tls: profile.options.tls }
+      : profile.kind === 'ssh'
+        ? { host: profile.host, port: profile.port, username: profile.username }
+        : profile.protocol === 's3'
+          ? { bucket: profile.bucket, region: profile.region }
+          : { host: profile.host, port: profile.port, username: profile.username };
+    const values = Object.entries(candidates).filter(([, value]) => value !== undefined && value !== '').map(([field, value]) => ({ target, field, value: value as string | number | boolean }));
+    if (values.length) await window.productivityApi.connectionCatalog.change({ type: 'remember-fields', values });
   }
 
   async function removeProfile(profile: ConnectionProfile) {
@@ -139,9 +166,9 @@ export function AppShell() {
       <div className="app-layout">
         <nav className="nav-rail" aria-label="Main navigation">
           <button className="nav-rail-item is-active" aria-label="Workspaces" title="Workspaces"><span>◫</span></button>
-          <button className="nav-rail-item" aria-label="Databases" title="Databases" onClick={() => openProfileDialog('database')}><span>▤</span></button>
+          <button className="nav-rail-item" aria-label="Data" title="Data" onClick={() => openProfileDialog('database')}><span>▤</span></button>
           <button className="nav-rail-item" aria-label="SSH hosts" title="SSH hosts" onClick={() => openProfileDialog('ssh')}><span>⌘</span></button>
-          <button className="nav-rail-item" aria-label="Files" title="Files" onClick={addFilesProfile}><span>⇄</span></button>
+          <button className="nav-rail-item" aria-label="Data connections" title="Data connections" onClick={addFilesProfile}><span>⇄</span></button>
           <div className="nav-rail-spacer" />
           <button className="nav-rail-item" aria-label="Settings" title="Settings" onClick={() => setShowSettingsDialog(true)}><span>⚙</span></button>
           <div className="account-chip" aria-label="Aetherexa local account">AE</div>
@@ -149,11 +176,13 @@ export function AppShell() {
 
         <ConnectionSidebar
           profiles={profiles}
+          groups={catalog.groups}
           activeProfileId={activeProfileId}
           query={search}
           onOpen={openProfile}
           onAddDatabase={() => openProfileDialog('database')}
           onAddSsh={() => openProfileDialog('ssh')}
+          onManageGroups={() => setShowGroups(true)}
           onRemove={(profile) => void removeProfile(profile)}
         />
 
@@ -182,8 +211,8 @@ export function AppShell() {
           ) : (
             <WelcomeWorkspace
               hasProfiles={profiles.length > 0}
-              onAddDatabase={() => setDialogKind('database')}
-              onAddSsh={() => setDialogKind('ssh')}
+              onAddDatabase={() => openProfileDialog('database')}
+              onAddSsh={() => openProfileDialog('ssh')}
             />
           )}
 
@@ -202,13 +231,37 @@ export function AppShell() {
           profile={editingProfile}
           onClose={() => { setDialogKind(null); setEditingProfile(undefined); }}
           onSave={saveProfile}
+          groups={catalog.groups}
+          onCreateGroup={(name) => changeCatalog({ type: 'create-group', name })}
         />
       )}
-      {showFileDialog && <FileTransferProfileDialog key={fileDialogProfile?.id ?? 'new-file'} profile={fileDialogProfile} onClose={() => { setShowFileDialog(false); setFileDialogProfile(undefined); }} onSave={saveProfile} />}
+      {showFileDialog && <FileTransferProfileDialog key={fileDialogProfile?.id ?? 'new-file'} profile={fileDialogProfile} groups={catalog.groups} onCreateGroup={(name) => changeCatalog({ type: 'create-group', name })} onClose={() => { setShowFileDialog(false); setFileDialogProfile(undefined); }} onSave={saveProfile} />}
+      {showNewConnection && <>
+        {!wizardTarget && <ConnectionWizard onClose={() => setShowNewConnection(false)} onChoose={setWizardTarget} />}
+        <div style={{ display: wizardTarget === 'database' ? 'contents' : 'none' }}>
+          <ProfileDialog kind="database" visible={wizardTarget === 'database'} groups={catalog.groups} profiles={profiles} templates={catalog.templates} reusableValues={catalog.reusableValues} onBack={() => setWizardTarget(null)} onClose={() => setShowNewConnection(false)} onSave={saveProfile} onSaveTemplate={(template) => changeCatalog({ type: 'put-template', template })} onCreateGroup={(name) => changeCatalog({ type: 'create-group', name })} />
+        </div>
+        <div style={{ display: wizardTarget === 'ssh' ? 'contents' : 'none' }}>
+          <ProfileDialog kind="ssh" visible={wizardTarget === 'ssh'} groups={catalog.groups} profiles={profiles} templates={catalog.templates} reusableValues={catalog.reusableValues} onBack={() => setWizardTarget(null)} onClose={() => setShowNewConnection(false)} onSave={saveProfile} onSaveTemplate={(template) => changeCatalog({ type: 'put-template', template })} onCreateGroup={(name) => changeCatalog({ type: 'create-group', name })} />
+        </div>
+        <div style={{ display: wizardTarget === 'files' ? 'contents' : 'none' }}>
+          <FileTransferProfileDialog visible={wizardTarget === 'files'} groups={catalog.groups} profiles={profiles} templates={catalog.templates} reusableValues={catalog.reusableValues} onBack={() => setWizardTarget(null)} onClose={() => setShowNewConnection(false)} onSave={saveProfile} onSaveTemplate={(template) => changeCatalog({ type: 'put-template', template })} onCreateGroup={(name) => changeCatalog({ type: 'create-group', name })} />
+        </div>
+      </>}
+      {showGroups && <GroupManagerDialog groups={catalog.groups} onClose={() => setShowGroups(false)} onChange={changeCatalog} />}
       {showUpdateDialog && <UpdateDialog currentVersion={version} status={updateStatus} onCheck={() => void checkForUpdates()} onInstall={() => void installUpdate()} onClose={() => setShowUpdateDialog(false)} />}
       {showSettingsDialog && <SettingsDialog onClose={() => setShowSettingsDialog(false)} onDirectoryChanged={() => void refreshProfiles()} onOpenUpdates={() => { setShowSettingsDialog(false); setShowUpdateDialog(true); }} />}
     </div>
   );
+
+  async function changeCatalog(input: import('@shared/profiles').CatalogChange): Promise<boolean> {
+    const result = await window.productivityApi.connectionCatalog.change(input);
+    if (!result.ok) { setError(result.error.message); return false; }
+    setCatalog(result.value);
+    if (input.type === 'rename-group' || input.type === 'remove-group') await refreshProfiles();
+    setError(null);
+    return true;
+  }
 }
 
 function WelcomeWorkspace({
@@ -228,7 +281,7 @@ function WelcomeWorkspace({
         <h1>{hasProfiles ? 'Open a connection to get started' : 'Bring your connections together'}</h1>
         <p className="welcome-copy">Manage databases, remote shells, and file transfers from one calm, focused desktop.</p>
         <div className="welcome-actions">
-          <button className="button button-primary" onClick={onAddDatabase}><span aria-hidden="true">＋</span> Add database</button>
+          <button className="button button-primary" onClick={onAddDatabase}><span aria-hidden="true">＋</span> Add data connection</button>
           <button className="button button-secondary" onClick={onAddSsh}><span aria-hidden="true">⌘</span> Add SSH host</button>
         </div>
         <div className="capability-row">

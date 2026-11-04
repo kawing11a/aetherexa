@@ -1,6 +1,6 @@
 export class StorageError extends Error {
   constructor(
-    readonly code: 'corrupt-store' | 'encryption-unavailable' | 'write-failed',
+    readonly code: 'corrupt-store' | 'encryption-unavailable' | 'write-failed' | 'group-exists' | 'group-not-found',
     message: string,
   ) {
     super(message);
