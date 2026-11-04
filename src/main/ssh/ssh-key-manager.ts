@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createPrivateKey } from 'node:crypto';
-import { utils } from 'ssh2';
+import ssh2 from 'ssh2';
 import type { ParsedKey } from 'ssh2';
 import type { ProfileStore } from '@main/storage/profile-store.js';
 import type { SecretStore } from '@main/storage/secret-store.js';
 import { SshKeyStore } from '@main/storage/ssh-key-store.js';
 import type { SshKeyRecord } from '@main/storage/ssh-key-store.js';
+
+const { utils } = ssh2;
 
 export type SshKeyMetadata = Pick<SshKeyRecord, 'fingerprint' | 'label' | 'algorithm' | 'publicKey' | 'createdAt'>;
 

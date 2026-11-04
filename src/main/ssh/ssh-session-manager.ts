@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { Client } from 'ssh2';
+import ssh2 from 'ssh2';
 import type { Client as SshClient, ConnectConfig } from 'ssh2';
 import type { WebContents } from 'electron';
 import type { SshSessionDescriptor, HostKeyNotice } from '@shared/database';
@@ -10,6 +10,8 @@ import type { ProfileStore } from '../storage/profile-store.js';
 import type { SecretStore } from '../storage/secret-store.js';
 import { KnownHostsStore } from './known-hosts-store.js';
 import type { SshKeyManager } from './ssh-key-manager.js';
+
+const { Client } = ssh2;
 
 type Session = { ownerId: number; profileId: string; client: SshClient; webContents: WebContents; descriptor: SshSessionDescriptor };
 type PendingTrust = { ownerId: number; profileId: string; host: string; port: number; client: SshClient; fingerprint: string; changed: boolean; verify(valid: boolean): void; timer: NodeJS.Timeout };

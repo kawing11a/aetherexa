@@ -5,7 +5,7 @@ import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { dialog } from 'electron';
-import { Client } from 'ssh2';
+import ssh2 from 'ssh2';
 import type { Client as SshClient, ConnectConfig, SFTPWrapper, Stats } from 'ssh2';
 import type { HostKeyNotice, TransferProgress } from '@shared/database';
 import type { FileProvider, FileProviderContext, FileProviderSession, RemoteFileProviderContext } from './provider-contracts.js';
@@ -15,6 +15,8 @@ import type { RemoteEntry } from '@shared/files';
 import type { Result } from '@shared/contracts';
 
 type PendingReview = { ownerId: number; profileId: string; host: string; port: number; fingerprint: string; changed: boolean; verify(valid: boolean): void; timer: NodeJS.Timeout };
+
+const { Client } = ssh2;
 
 export class SftpProvider implements FileProvider {
   private readonly pending = new Map<string, PendingReview>();

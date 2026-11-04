@@ -45,3 +45,22 @@ skip: Packaged UI smoke launch was blocked by the execution policy when starting
 skip: Automated tests are not requested. Typecheck, build, packaging, and artifact inspection are required by the approved packaging plan.
 skip: Independent subagent review is disallowed by the active inline-work instruction; inspect changed code directly.
 skip: Packaged app UI and live server checks require external SFTP, FTP, and AWS environments not present in this workspace.
+
+## Aetherexa v0.2.1 startup crash fix
+
+- [x] Phase 1: Root cause investigation.
+- [x] Phase 2: Pattern analysis.
+- [x] Phase 3: Hypothesis and testing.
+- [x] Phase 4: Implementation.
+- [x] Reproduce the CommonJS named-export failure from the screenshot.
+- [x] Confirm default import exposes ssh2.Client and ssh2.utils.
+- [x] Replace all runtime ssh2 named imports with default imports.
+- [x] Bump package version to 0.2.1.
+- [x] Run typecheck and build; inspect the bundled main import.
+- [x] Package MSI, Setup.exe, ZIP, RELEASES, and full nupkg.
+- [x] Verify packaged main bundle imports ssh2 through its default export.
+- [ ] Commit and push the fix to feature and default branches.
+- [ ] Publish v0.2.1 and verify its installer and update assets.
+
+skip: Do not add or run automated tests; the session instructions exclude tests unless requested. Use the reproduced Node ESM import and production bundle/package inspection instead.
+skip: Do not launch the newly built executable through Windows UI automation; that action requires action-time confirmation under the Computer Use policy.
