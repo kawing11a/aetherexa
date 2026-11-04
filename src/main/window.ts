@@ -12,7 +12,7 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 700,
     backgroundColor: '#0c1118',
     show: false,
-    title: 'Unified Productivity',
+    title: 'Aetherexa',
     webPreferences: {
       preload: join(currentDirectory, '../preload/index.cjs'),
       nodeIntegration: false,

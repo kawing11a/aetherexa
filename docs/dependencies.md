@@ -41,4 +41,6 @@ Initial dependency set for the Windows desktop shell. Versions are exact pins fr
 | `@types/oracledb` | 26.0.1 | MIT | Oracle driver type declarations |
 | `@types/memjs` | 1.3.3 | MIT | Memcached client type declarations |
 
-Windows installer builds use WiX Toolset v3.14.1. The `package` script searches `WIX3_HOME`, the standard WiX v3 install folders, and `%LOCALAPPDATA%\UnifiedProductivity\build-tools\wix3141`. The official portable binaries are available from the [WiX v3.14.1 release](https://github.com/wixtoolset/wix3/releases/tag/wix3141rtm).
+Electron's built-in `autoUpdater` checks the public `update.electronjs.org` service for Squirrel Setup.exe installations. It does not add an external updater dependency. Each GitHub Release must include the Squirrel `RELEASES` manifest and full `.nupkg` package in addition to the installers.
+
+Windows installer builds use WiX Toolset v3.14.1. The `package` script searches `WIX3_HOME`, the standard WiX v3 install folders, `%LOCALAPPDATA%\Aetherexa\build-tools\wix3141`, and the previous Unified Productivity build-tools cache. The official portable binaries are available from the [WiX v3.14.1 release](https://github.com/wixtoolset/wix3/releases/tag/wix3141rtm).

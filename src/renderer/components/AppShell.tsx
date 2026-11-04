@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ConnectionProfile } from '@shared/profiles';
-import type { ProfileSaveInput } from '@shared/contracts';
+import type { ProfileSaveInput, UpdateStatus } from '@shared/contracts';
 import { WorkspaceRouter } from '@renderer/workspaces/WorkspaceRouter.js';
 import { ConnectionSidebar } from './ConnectionSidebar.js';
 import { CommandSearch } from './CommandSearch.js';
 import { ProfileDialog } from './ProfileDialog.js';
 import { WorkspaceTabs } from './WorkspaceTabs.js';
+import { UpdateDialog } from './UpdateDialog.js';
+import aetherexaIcon from '@renderer/assets/aetherexa.png';
 import type { WorkspaceTab } from './WorkspaceTabs.js';
 
 type ProfileKind = 'database' | 'ssh';
@@ -20,6 +22,8 @@ export function AppShell() {
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState('');
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle', message: 'Updates have not been checked yet.' });
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const refreshProfiles = useCallback(async () => {
@@ -33,12 +37,17 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
+    const unsubscribeUpdateStatus = window.productivityApi.app.onUpdateStatus(setUpdateStatus);
     void Promise.all([
       refreshProfiles(),
       window.productivityApi.app.getVersion().then((result) => {
         if (result.ok) setVersion(result.value);
       }),
+      window.productivityApi.app.getUpdateStatus().then((result) => {
+        if (result.ok) setUpdateStatus(result.value);
+      }),
     ]).finally(() => setLoading(false));
+    return unsubscribeUpdateStatus;
   }, [refreshProfiles]);
 
   const tabs = useMemo<WorkspaceTab[]>(() => openProfileIds.flatMap((id) => {
@@ -90,12 +99,23 @@ export function AppShell() {
     await refreshProfiles();
   }
 
+  async function checkForUpdates() {
+    const result = await window.productivityApi.app.checkForUpdates();
+    if (result.ok) setUpdateStatus(result.value);
+    else setUpdateStatus({ state: 'error', message: result.error.message });
+  }
+
+  async function installUpdate() {
+    const result = await window.productivityApi.app.installUpdate();
+    if (!result.ok) setUpdateStatus({ state: 'error', message: result.error.message });
+  }
+
   return (
     <div className="app-window">
       <div className="window-topline">
         <div className="window-brand">
-          <span className="brand-mark" aria-hidden="true"><span /></span>
-          <span>Unified Productivity</span>
+          <img className="brand-mark" src={aetherexaIcon} alt="" />
+          <span>Aetherexa</span>
           <span className="brand-divider" />
           <span className="brand-section">Workspaces</span>
         </div>
@@ -108,8 +128,8 @@ export function AppShell() {
           <button className="nav-rail-item" aria-label="Databases" title="Databases" onClick={() => openProfileDialog('database')}><span>▤</span></button>
           <button className="nav-rail-item" aria-label="SSH hosts" title="SSH hosts" onClick={() => openProfileDialog('ssh')}><span>⌘</span></button>
           <div className="nav-rail-spacer" />
-          <button className="nav-rail-item" aria-label="Settings" title="Settings"><span>⚙</span></button>
-          <div className="account-chip" aria-label="Local account">UP</div>
+          <button className="nav-rail-item" aria-label="Settings and updates" title="Settings and updates" onClick={() => setShowUpdateDialog(true)}><span>⚙</span></button>
+          <div className="account-chip" aria-label="Aetherexa local account">AE</div>
         </nav>
 
         <ConnectionSidebar
@@ -169,6 +189,7 @@ export function AppShell() {
           onSave={saveProfile}
         />
       )}
+      {showUpdateDialog && <UpdateDialog currentVersion={version} status={updateStatus} onCheck={() => void checkForUpdates()} onInstall={() => void installUpdate()} onClose={() => setShowUpdateDialog(false)} />}
     </div>
   );
 }

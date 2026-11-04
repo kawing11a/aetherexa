@@ -1,0 +1,56 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set package version from release tag
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') { throw "Release tag must use semantic versioning, such as v0.2.0. Got: $env:GITHUB_REF_NAME" }
+          npm version $version --no-git-tag-version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install WiX Toolset 3.14.1
+        shell: pwsh
+        run: |
+          $wixRoot = Join-Path $env:LOCALAPPDATA 'Aetherexa/build-tools/wix3141'
+          $archive = Join-Path $env:RUNNER_TEMP 'wix314-binaries.zip'
+          New-Item -ItemType Directory -Force -Path $wixRoot | Out-Null
+          Invoke-WebRequest 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip' -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $wixRoot -Force
+
+      - name: Build MSI, EXE, and portable ZIP
+        run: npm run package
+
+      - name: Publish installers to GitHub Releases
+        uses: softprops/action-gh-release@v3
+        with:
+          name: Aetherexa ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release/make/**/*.exe
+            release/make/**/*.msi
+            release/make/**/*.zip
+            release/make/squirrel.windows/x64/RELEASES
+            release/make/squirrel.windows/x64/*.nupkg

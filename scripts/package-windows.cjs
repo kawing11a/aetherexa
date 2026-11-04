@@ -11,6 +11,8 @@ const candidates = [
   wixHome && path.join(wixHome, 'bin'),
   path.join(programFiles, 'WiX Toolset v3.14', 'bin'),
   path.join(programFilesX86, 'WiX Toolset v3.14', 'bin'),
+  path.join(localAppData, 'Aetherexa', 'build-tools', 'wix3141', 'bin'),
+  path.join(localAppData, 'Aetherexa', 'build-tools', 'wix3141'),
   path.join(localAppData, 'UnifiedProductivity', 'build-tools', 'wix3141', 'bin'),
   path.join(localAppData, 'UnifiedProductivity', 'build-tools', 'wix3141'),
 ].filter(Boolean);

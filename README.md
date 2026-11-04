@@ -1,32 +1,51 @@
-# Unified Productivity Desktop
+# Aetherexa
 
-A Windows desktop app that brings database, cache, SSH terminal, and SFTP workspaces together. It uses original UI and direct protocol connections; Navicat Premium 17, Termora, and WinSCP were workflow references only.
+Aetherexa is an open-source Windows desktop workspace for database administration, SSH terminals, and SFTP file transfers. It connects directly to your services and keeps connection profiles and credentials on your PC.
 
-## Current scope
+Repository: [github.com/kawing11a/aetherexa](https://github.com/kawing11a/aetherexa)
 
-- MySQL / MariaDB, PostgreSQL, SQL Server, Oracle, SQLite
-- MongoDB, Redis, Memcached
-- SSH terminal, local PowerShell terminal, and basic SFTP browsing and file transfers
-- Local connection profiles; credentials encrypted with Electron safeStorage on Windows
+## Features
 
-The current build is an early foundation. See the [user guide](docs/user-guide.md), [security notes](docs/security-and-credentials.md), [package contents](docs/package-contents.md), and [dependency decisions](docs/dependencies.md) for setup and limitations.
+- Database and cache connections for MySQL/MariaDB, PostgreSQL, SQL Server, Oracle, SQLite, MongoDB, Redis, and Memcached.
+- SSH authentication with password, public key, or SSH Agent.
+- Remote SSH terminal tabs, a local PowerShell terminal, and SFTP browsing, uploads, and downloads.
+- Local connection profiles with credentials protected using Electron `safeStorage` on Windows.
+
+The application is under active development. See the [user guide](docs/user-guide.md), [security and credential notes](docs/security-and-credentials.md), [package contents](docs/package-contents.md), and [dependency decisions](docs/dependencies.md) for current capabilities and limitations.
+
+## Install
+
+Download the latest files from [GitHub Releases](https://github.com/kawing11a/aetherexa/releases):
+
+- **Setup.exe** is the recommended per-user installation. It checks for updates in the background, downloads them, and asks you to restart Aetherexa to apply the update.
+- **MSI** is intended for managed deployments. Administrators update it with a newer MSI through Windows Installer.
+- **Portable ZIP** runs without an installer and does not receive automatic updates.
+
+Windows may show a SmartScreen notice because the installers are not code-signed.
 
 ## Build on Windows x64
 
-Use a supported Node.js LTS release and npm. Native modules (`sqlite3` and `node-pty`) must rebuild against the bundled Electron version; Electron Forge runs its native dependency rebuild during packaging.
+Install Node.js 22 and npm. MSI packaging also requires WiX Toolset 3.14.1; the packaging script checks `WIX3_HOME`, standard install locations, `%LOCALAPPDATA%\Aetherexa\build-tools\wix3141`, and the previous Unified Productivity build-tools cache.
 
 ```powershell
 npm ci
 npm run typecheck
-npm run build
 npm run dev
 npm run package
 ```
 
-Each `npm run package` creates the Squirrel EXE installer, WiX MSI installer, and portable ZIP under `release/make/`. Install WiX Toolset v3.14.1 first; the packaging script checks `WIX3_HOME`, standard install paths, and the local build-tools cache. Packaging creates local artifacts and does not publish or sign them. See [package contents](docs/package-contents.md) for exact paths and prerequisites.
+`npm run package` creates Setup.exe, MSI, and portable ZIP outputs under `release/make/`. It also creates Squirrel's `RELEASES` manifest and full `.nupkg` package used by the in-place updater. Packaging writes local artifacts; pushing a `v*` version tag runs [the Windows release workflow](.github/workflows/release.yml), which builds and attaches the installers and update metadata to a GitHub Release.
 
-## Data location
+## Local data and security
 
-Application data is stored under Electron's per-user `userData` directory. For isolated portable or diagnostic runs, set `UNIFIED_PRODUCTIVITY_DATA_DIR` to an explicit directory before launch. On Windows this is normally `%APPDATA%\Unified Productivity`. The profile file contains connection metadata; the secret store is encrypted by Windows-backed Electron safeStorage. SSH host fingerprints are in a separate local file. There is no cloud sync or relay.
+Profiles, encrypted credentials, and SSH host fingerprints are stored in Electron's per-user data directory, normally `%APPDATA%\Aetherexa`. On the first Aetherexa launch, data from the former `%APPDATA%\Unified Productivity` directory is moved when the new directory does not already exist. The old `UNIFIED_PRODUCTIVITY_DATA_DIR` environment variable remains supported for isolated runs and custom data locations.
 
+Credential encryption uses Windows-backed Electron `safeStorage`. Aetherexa does not include cloud sync or a relay service. See [security and credentials](docs/security-and-credentials.md) for details.
 
+## Contributing
+
+Issues and feature requests are welcome in the [GitHub issue tracker](https://github.com/kawing11a/aetherexa/issues). For code changes, build on Windows x64 and include a clear description of the behavior changed. Do not include real connection credentials, private keys, or production data in issues or pull requests.
+
+## License
+
+Aetherexa is available under the [MIT License](LICENSE).

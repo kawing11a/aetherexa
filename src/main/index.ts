@@ -1,7 +1,5 @@
 import { app, BrowserWindow } from 'electron';
-import { resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import { mkdirSync } from 'node:fs';
 import { createMainWindow } from './window.js';
 import { registerHandlers, type ApplicationServices } from './ipc/register-handlers.js';
 import { ProfileStore } from './storage/profile-store.js';
@@ -12,24 +10,29 @@ import { KnownHostsStore } from './ssh/known-hosts-store.js';
 import { SshSessionManager } from './ssh/ssh-session-manager.js';
 import { TerminalSessionManager } from './terminal/terminal-session-manager.js';
 import { SftpSessionManager } from './sftp/sftp-session-manager.js';
+import { prepareAppDataDirectory } from './storage/app-data-migration.js';
+import { UpdateManager } from './update/update-manager.js';
 
 const require = createRequire(import.meta.url);
-if (require('electron-squirrel-startup')) app.quit();
-app.setAppUserModelId('com.squirrel.UnifiedProductivity.UnifiedProductivity');
-
-const explicitDataDirectory = process.env.UNIFIED_PRODUCTIVITY_DATA_DIR?.trim();
-if (explicitDataDirectory) { const resolvedDataDirectory = resolve(explicitDataDirectory); mkdirSync(resolvedDataDirectory, { recursive: true }); app.setPath('userData', resolvedDataDirectory); }
+const squirrelStartupEvent = require('electron-squirrel-startup');
+if (squirrelStartupEvent) app.quit();
+app.setAppUserModelId('com.squirrel.aetherexa.Aetherexa');
+if (!squirrelStartupEvent) prepareAppDataDirectory();
 
 let services: ApplicationServices | undefined;
-let shutdownStarted = false;
+let updates: UpdateManager | undefined;
+let sessionClosePromise: Promise<void> | undefined;
+let sessionsClosed = false;
 
 function openMainWindow(): void {
-  if (!services) return;
+  if (!services || !updates) return;
   const window = createMainWindow();
-  registerHandlers(window, services);
+  registerHandlers(window, services, updates);
 }
 
 app.whenReady().then(() => {
+  updates = new UpdateManager();
+  updates.initialize();
   const profiles = new ProfileStore();
   const secrets = new SecretStore();
   const knownHosts = new KnownHostsStore();
@@ -44,12 +47,25 @@ app.whenReady().then(() => {
   });
 
   app.on('before-quit', (event) => {
-    if (shutdownStarted) return;
-    shutdownStarted = true;
+    if (sessionsClosed) return;
     event.preventDefault();
-    void Promise.all([services?.databases.closeAll(), services?.ssh.closeAll(), services?.terminals.closeAll(), services?.sftp.closeAll()]).finally(() => app.quit());
+    void closeSessions().finally(() => app.quit());
   });
 });
+
+function closeSessions(): Promise<void> {
+  if (!sessionClosePromise) {
+    sessionClosePromise = Promise.all([
+      services?.databases.closeAll(),
+      services?.ssh.closeAll(),
+      services?.terminals.closeAll(),
+      services?.sftp.closeAll(),
+    ]).then(() => {
+      sessionsClosed = true;
+    });
+  }
+  return sessionClosePromise;
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

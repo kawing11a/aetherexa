@@ -43,6 +43,10 @@ const productivityApi: ProductivityApi = {
   },
   app: {
     getVersion: () => ipcRenderer.invoke('app:get-version', {}),
+    getUpdateStatus: () => ipcRenderer.invoke('app:update-status', {}),
+    checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates', {}),
+    installUpdate: () => ipcRenderer.invoke('app:install-update', {}),
+    onUpdateStatus: (listener) => subscribe('app:update-status-changed', listener),
   },
   profiles: {
     list: () => ipcRenderer.invoke('profiles:list', {}),

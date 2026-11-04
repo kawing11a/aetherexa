@@ -21,6 +21,10 @@ export interface ProductivityApi {
   sftp: SftpApi;
   app: {
     getVersion(): Promise<Result<string>>;
+    getUpdateStatus(): Promise<Result<UpdateStatus>>;
+    checkForUpdates(): Promise<Result<UpdateStatus>>;
+    installUpdate(): Promise<Result<void>>;
+    onUpdateStatus(listener: (status: UpdateStatus) => void): () => void;
   };
   profiles: {
     list(): Promise<Result<import('./profiles.js').ConnectionProfile[]>>;
@@ -28,6 +32,11 @@ export interface ProductivityApi {
     remove(id: string): Promise<Result<void>>;
   };
 }
+
+export type UpdateStatus = {
+  state: 'unsupported' | 'idle' | 'checking' | 'current' | 'downloading' | 'ready' | 'error';
+  message: string;
+};
 
 declare global {
   interface Window {

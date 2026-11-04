@@ -6,6 +6,8 @@ The renderer runs sandboxed with context isolation and no Node integration. A na
 
 Profiles and SSH host fingerprints are stored under Electron `userData`. Credentials are encrypted with Electron `safeStorage` (Windows-backed protection) before writing to the local secret file. A profile stores a non-secret revision pointer, and the encrypted credential revision is written before the profile switches to it. A crash during an edit therefore leaves the old profile paired with its old credential. Unreferenced revisions can remain if the app closes between switching and cleanup. If the operating system does not offer encryption, credential saving fails closed. The app does not read credentials from Navicat, Termora, or WinSCP.
 
+Setup.exe installations contact `update.electronjs.org` after launch and hourly to check the public Aetherexa GitHub release. The check includes the installed app version and Windows platform so the update service can select a release; connection profiles, credentials, SQL, and SSH data are not sent. MSI and portable ZIP installations do not use this automatic update check.
+
 Public Key authentication reads the private key from the path explicitly supplied in an SSH profile; the matching public key must already be authorized by the SSH server. The private key contents are not copied into the profile file. Passphrases are stored as credentials. Keep private key file permissions and device access under your normal Windows security policy.
 
 ## SSH host verification

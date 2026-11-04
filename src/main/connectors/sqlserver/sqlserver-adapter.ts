@@ -12,7 +12,7 @@ export class SqlServerAdapter implements DatabaseAdapter {
   readonly engine = 'sqlserver' as const;
   async connect(profile: DatabaseProfile, secrets: SecretBundle): Promise<Result<DatabaseSession>> {
     try {
-      const pool = await new sql.ConnectionPool({ server: requiredHost(profile), port: requiredPort(profile, 1433), user: requiredUsername(profile), password: password(secrets), database: optionalDatabase(profile), connectionTimeout: 10_000, requestTimeout: 30_000, options: { encrypt: tlsEnabled(profile), trustServerCertificate: false, appName: 'Unified Productivity' }, pool: { max: 2, min: 0, idleTimeoutMillis: 30_000 } }).connect();
+          const pool = await new sql.ConnectionPool({ server: requiredHost(profile), port: requiredPort(profile, 1433), user: requiredUsername(profile), password: password(secrets), database: optionalDatabase(profile), connectionTimeout: 10_000, requestTimeout: 30_000, options: { encrypt: tlsEnabled(profile), trustServerCertificate: false, appName: 'Aetherexa' }, pool: { max: 2, min: 0, idleTimeoutMillis: 30_000 } }).connect();
       const session: SqlSession = {
         kind: 'sql', engine: this.engine, capabilities,
         async close() { await pool.close(); },

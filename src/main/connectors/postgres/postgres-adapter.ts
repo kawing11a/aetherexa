@@ -13,7 +13,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   readonly engine = 'postgres' as const;
   async connect(profile: DatabaseProfile, secrets: SecretBundle): Promise<Result<DatabaseSession>> {
     try {
-      const pool = new Pool({ host: requiredHost(profile), port: requiredPort(profile, 5432), user: requiredUsername(profile), password: password(secrets), database: optionalDatabase(profile) ?? 'postgres', ssl: tlsEnabled(profile) ? { rejectUnauthorized: true } : false, connectionTimeoutMillis: 10_000, statement_timeout: 30_000, application_name: 'Unified Productivity' });
+          const pool = new Pool({ host: requiredHost(profile), port: requiredPort(profile, 5432), user: requiredUsername(profile), password: password(secrets), database: optionalDatabase(profile) ?? 'postgres', ssl: tlsEnabled(profile) ? { rejectUnauthorized: true } : false, connectionTimeoutMillis: 10_000, statement_timeout: 30_000, application_name: 'Aetherexa' });
       const client = await pool.connect(); client.release();
       const session: SqlSession = {
         kind: 'sql', engine: this.engine, capabilities,

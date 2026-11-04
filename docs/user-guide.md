@@ -1,5 +1,9 @@
 # User Guide
 
+## Application updates
+
+When installed with Aetherexa Setup.exe, open Settings to check for an update. The app also checks after startup and about once an hour, downloads available updates in the background, and offers to restart when the update is ready. A newer MSI is applied through Windows Installer by your administrator. Portable ZIP builds do not update themselves.
+
 ## First launch and profiles
 
 Create a database or SSH profile from the sidebar. SSH authentication offers Password, Public Key, and SSH Agent. Public Key mode reads the matching private key file locally; its optional passphrase is entered into the secure credential field. Database passwords are entered into the secure credential field; leaving a credential blank while editing keeps its existing saved value. SQLite profiles point to a local database file.
