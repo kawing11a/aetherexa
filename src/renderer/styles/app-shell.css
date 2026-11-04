@@ -1,4 +1,5 @@
 #root { min-height: 100vh; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .app-window { display: flex; flex-direction: column; height: 100vh; min-height: 640px; background: var(--surface-0); }
 .window-topline { height: 42px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid #1d2935; background: #0e151e; color: var(--text-dim); font-size: 11px; -webkit-app-region: drag; }
 .window-brand, .window-actions { display: flex; align-items: center; gap: 10px; }
