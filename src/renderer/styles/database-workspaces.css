@@ -79,3 +79,15 @@
 .host-key-prompt div { display:flex; gap:8px; margin-top:16px; }
 @media (max-width:900px) { .ssh-split { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(230px,1fr) minmax(200px,.8fr); } }
 .ssh-local-only { grid-template-columns:minmax(0,1fr); }
+.files-toolbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-bottom: 1px solid #263544; }
+.files-current-path { min-width: 0; overflow: hidden; margin-left: auto; color: #aab9c8; font: 11px 'DM Mono', monospace; text-overflow: ellipsis; white-space: nowrap; }
+.files-table { min-height: 0; flex: 1; overflow: auto; padding: 6px 18px; }
+.files-table-head, .files-row { display: grid; grid-template-columns: minmax(220px, 1fr) 100px 120px minmax(150px, 220px) 60px; align-items: center; gap: 10px; min-height: 38px; border-bottom: 1px solid #1f2b38; color: #9cabb9; font-size: 11px; }
+.files-table-head { color: #718398; font-weight: 700; }
+.files-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files-entry-name { overflow: hidden; border: 0; color: #d5e0e9; background: transparent; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.files-entry-name:hover { color: var(--accent); }
+.files-delete { border: 0; color: #a98e8e; background: transparent; font-size: 10px; cursor: pointer; }
+.files-delete:hover { color: #ffaaaa; }
+.files-progress { flex: none; padding: 9px 18px; border-top: 1px solid #273544; color: #a9c4b7; font-size: 11px; }
+@media (max-width: 860px) { .files-table-head, .files-row { grid-template-columns: minmax(140px, 1fr) 75px 80px 50px; } .files-table-head > :nth-child(4), .files-row > :nth-child(4) { display: none; } }

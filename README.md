@@ -1,6 +1,6 @@
 # Aetherexa
 
-Aetherexa is an open-source Windows desktop workspace for database administration, SSH terminals, and SFTP file transfers. It connects directly to your services and keeps connection profiles and credentials on your PC.
+Aetherexa is an open-source Windows desktop workspace for database administration, SSH terminals, and file transfers over SFTP, FTP/FTPS, and AWS S3. It connects directly to your services and keeps connection profiles and credentials on your PC.
 
 Repository: [github.com/kawing11a/aetherexa](https://github.com/kawing11a/aetherexa)
 
@@ -8,8 +8,9 @@ Repository: [github.com/kawing11a/aetherexa](https://github.com/kawing11a/aether
 
 - Database and cache connections for MySQL/MariaDB, PostgreSQL, SQL Server, Oracle, SQLite, MongoDB, Redis, and Memcached.
 - SSH authentication with password, public key, or SSH Agent.
-- Remote SSH terminal tabs, a local PowerShell terminal, and SFTP browsing, uploads, and downloads.
-- Local connection profiles with credentials protected using Electron `safeStorage` on Windows.
+- Remote SSH terminal tabs, a local PowerShell terminal, and a separate Files workspace for SFTP, FTP/FTPS, and AWS S3.
+- A local SSH key manager to import or generate Ed25519/RSA keys, protect them with Electron `safeStorage`, and select them from connection profiles.
+- A configurable shared folder for connection metadata; passwords, private keys, and static AWS secrets remain encrypted in local app data.
 
 The application is under active development. See the [user guide](docs/user-guide.md), [security and credential notes](docs/security-and-credentials.md), [package contents](docs/package-contents.md), and [dependency decisions](docs/dependencies.md) for current capabilities and limitations.
 

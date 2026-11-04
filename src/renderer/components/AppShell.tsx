@@ -7,6 +7,8 @@ import { CommandSearch } from './CommandSearch.js';
 import { ProfileDialog } from './ProfileDialog.js';
 import { WorkspaceTabs } from './WorkspaceTabs.js';
 import { UpdateDialog } from './UpdateDialog.js';
+import { SettingsDialog } from './SettingsDialog.js';
+import { FileTransferProfileDialog } from './FileTransferProfileDialog.js';
 import aetherexaIcon from '@renderer/assets/aetherexa.png';
 import type { WorkspaceTab } from './WorkspaceTabs.js';
 
@@ -19,11 +21,14 @@ export function AppShell() {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [dialogKind, setDialogKind] = useState<ProfileKind | null>(null);
   const [editingProfile, setEditingProfile] = useState<ConnectionProfile | undefined>();
+  const [fileDialogProfile, setFileDialogProfile] = useState<ConnectionProfile | undefined>();
+  const [showFileDialog, setShowFileDialog] = useState(false);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState('');
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle', message: 'Updates have not been checked yet.' });
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const refreshProfiles = useCallback(async () => {
@@ -57,9 +62,18 @@ export function AppShell() {
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null;
 
   function openProfileDialog(kind: ProfileKind, profile?: ConnectionProfile) {
+    if (profile?.kind === 'file-transfer') { setFileDialogProfile(profile); setShowFileDialog(true); return; }
     setEditingProfile(profile);
     setDialogKind(kind);
   }
+
+  function editActiveProfile() {
+    if (!activeProfile) return;
+    if (activeProfile.kind === 'file-transfer') { setFileDialogProfile(activeProfile); setShowFileDialog(true); }
+    else openProfileDialog(activeProfile.kind, activeProfile);
+  }
+
+  function addFilesProfile() { setFileDialogProfile(undefined); setShowFileDialog(true); }
 
   function openProfile(id: string) {
     setOpenProfileIds((ids) => ids.includes(id) ? ids : [...ids, id]);
@@ -127,8 +141,9 @@ export function AppShell() {
           <button className="nav-rail-item is-active" aria-label="Workspaces" title="Workspaces"><span>◫</span></button>
           <button className="nav-rail-item" aria-label="Databases" title="Databases" onClick={() => openProfileDialog('database')}><span>▤</span></button>
           <button className="nav-rail-item" aria-label="SSH hosts" title="SSH hosts" onClick={() => openProfileDialog('ssh')}><span>⌘</span></button>
+          <button className="nav-rail-item" aria-label="Files" title="Files" onClick={addFilesProfile}><span>⇄</span></button>
           <div className="nav-rail-spacer" />
-          <button className="nav-rail-item" aria-label="Settings and updates" title="Settings and updates" onClick={() => setShowUpdateDialog(true)}><span>⚙</span></button>
+          <button className="nav-rail-item" aria-label="Settings" title="Settings" onClick={() => setShowSettingsDialog(true)}><span>⚙</span></button>
           <div className="account-chip" aria-label="Aetherexa local account">AE</div>
         </nav>
 
@@ -145,7 +160,7 @@ export function AppShell() {
         <main className="workspace-main">
           <div className="main-toolbar">
             <CommandSearch value={search} onChange={setSearch} />
-            {activeProfile && <button className="toolbar-shortcut" onClick={() => openProfileDialog(activeProfile.kind, activeProfile)}>Edit profile</button>}
+            {activeProfile && <button className="toolbar-shortcut" onClick={editActiveProfile}>Edit profile</button>}
             <button className="toolbar-shortcut" onClick={() => openProfileDialog('database')}><span aria-hidden="true">＋</span> New connection</button>
             <div className="toolbar-divider" />
             <span className="toolbar-avatar">C</span>
@@ -189,7 +204,9 @@ export function AppShell() {
           onSave={saveProfile}
         />
       )}
+      {showFileDialog && <FileTransferProfileDialog key={fileDialogProfile?.id ?? 'new-file'} profile={fileDialogProfile} onClose={() => { setShowFileDialog(false); setFileDialogProfile(undefined); }} onSave={saveProfile} />}
       {showUpdateDialog && <UpdateDialog currentVersion={version} status={updateStatus} onCheck={() => void checkForUpdates()} onInstall={() => void installUpdate()} onClose={() => setShowUpdateDialog(false)} />}
+      {showSettingsDialog && <SettingsDialog onClose={() => setShowSettingsDialog(false)} onDirectoryChanged={() => void refreshProfiles()} onOpenUpdates={() => { setShowSettingsDialog(false); setShowUpdateDialog(true); }} />}
     </div>
   );
 }
@@ -230,14 +247,19 @@ function ProfileOverview({ profile, onEdit }: { profile: ConnectionProfile; onEd
     ? profile.engine === 'sqlite'
       ? String(profile.options.path ?? 'Local file')
       : `${String(profile.options.host ?? 'Host not set')}${profile.options.port ? `:${profile.options.port}` : ''}`
-    : `${profile.username}@${profile.host}:${profile.port}`;
+    : profile.kind === 'ssh'
+      ? `${profile.username}@${profile.host}:${profile.port}`
+      : profile.protocol === 's3'
+        ? `${profile.bucket} · ${profile.region}`
+        : `${profile.username}@${profile.host}:${profile.port}`;
+  const typeLabel = profile.kind === 'database' ? 'Database profile' : profile.kind === 'ssh' ? 'SSH host profile' : `${profile.protocol.toUpperCase()} file profile`;
 
   return (
     <section className="profile-overview">
       <div className="overview-breadcrumb"><span>Connections</span><b>/</b><strong>{profile.name}</strong></div>
       <div className="overview-heading">
         <div className={`overview-icon ${isDatabase ? 'icon-database' : 'icon-terminal'}`} aria-hidden="true">{isDatabase ? 'DB' : '&gt;_'}</div>
-        <div><p className="eyebrow">{isDatabase ? 'Database profile' : 'SSH host profile'}</p><h1>{profile.name}</h1><p className="overview-subtitle">{subtitle}</p></div>
+        <div><p className="eyebrow">{typeLabel}</p><h1>{profile.name}</h1><p className="overview-subtitle">{subtitle}</p></div>
         <button className="button button-secondary overview-edit" onClick={onEdit}>Edit profile</button>
       </div>
       <div className="profile-status-card">

@@ -1,7 +1,7 @@
 export type WorkspaceTab = {
   id: string;
   title: string;
-  kind: 'database' | 'ssh';
+  kind: 'database' | 'ssh' | 'file-transfer';
 };
 
 type WorkspaceTabsProps = {
@@ -27,7 +27,7 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onClose }: WorkspaceTa
         >
           <button className="workspace-tab-select" onClick={() => onSelect(tab.id)}>
             <span className={`profile-kind-mark mark-${tab.kind}`} aria-hidden="true">
-              {tab.kind === 'database' ? 'DB' : 'SH'}
+              {tab.kind === 'database' ? 'DB' : tab.kind === 'ssh' ? 'SH' : 'FT'}
             </span>
             <span className="workspace-tab-title">{tab.title}</span>
           </button>

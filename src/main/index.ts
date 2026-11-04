@@ -12,6 +12,13 @@ import { TerminalSessionManager } from './terminal/terminal-session-manager.js';
 import { SftpSessionManager } from './sftp/sftp-session-manager.js';
 import { prepareAppDataDirectory } from './storage/app-data-migration.js';
 import { UpdateManager } from './update/update-manager.js';
+import { ConnectionDirectoryStore } from './storage/connection-directory-store.js';
+import { SshKeyStore } from './storage/ssh-key-store.js';
+import { SshKeyManager } from './ssh/ssh-key-manager.js';
+import { SftpProvider } from './files/sftp-provider.js';
+import { FtpProvider } from './files/ftp-provider.js';
+import { FileSessionManager } from './files/file-session-manager.js';
+import { S3Provider } from './files/s3-provider.js';
 
 const require = createRequire(import.meta.url);
 const squirrelStartupEvent = require('electron-squirrel-startup');
@@ -30,16 +37,20 @@ function openMainWindow(): void {
   registerHandlers(window, services, updates);
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   updates = new UpdateManager();
   updates.initialize();
-  const profiles = new ProfileStore();
+  const connectionDirectory = new ConnectionDirectoryStore();
+  await connectionDirectory.initialize();
+  const profiles = new ProfileStore(connectionDirectory);
   const secrets = new SecretStore();
+  const sshKeys = new SshKeyManager(new SshKeyStore(), secrets, profiles);
   const knownHosts = new KnownHostsStore();
-  const ssh = new SshSessionManager(profiles, secrets, knownHosts);
+  const ssh = new SshSessionManager(profiles, secrets, knownHosts, sshKeys);
   const terminals = new TerminalSessionManager(ssh);
   const sftp = new SftpSessionManager(ssh);
-  services = { profiles, secrets, databases: new DatabaseSessionManager(profiles, secrets, createConnectorRegistry()), ssh, terminals, sftp, knownHosts };
+  const files = new FileSessionManager(profiles, secrets, new SftpProvider(sshKeys, knownHosts), new FtpProvider(), new S3Provider());
+  services = { profiles, secrets, databases: new DatabaseSessionManager(profiles, secrets, createConnectorRegistry()), ssh, terminals, sftp, knownHosts, connectionDirectory, sshKeys, files };
   openMainWindow();
 
   app.on('activate', () => {
@@ -60,6 +71,7 @@ function closeSessions(): Promise<void> {
       services?.ssh.closeAll(),
       services?.terminals.closeAll(),
       services?.sftp.closeAll(),
+      services?.files.closeAll(),
     ]).then(() => {
       sessionsClosed = true;
     });

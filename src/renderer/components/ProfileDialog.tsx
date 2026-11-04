@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { ProfileSaveInput } from '@shared/contracts';
 import type { ConnectionProfile, DatabaseEngine } from '@shared/profiles';
+import type { SshKeyMetadata } from '@shared/profiles';
+import { SshKeyManagerDialog } from './SshKeyManagerDialog.js';
 
 type ProfileKind = 'database' | 'ssh';
 type AuthMode = 'password' | 'private-key-file' | 'agent';
@@ -25,7 +27,7 @@ const engines: { value: DatabaseEngine; label: string; defaultPort: number }[] =
 ];
 
 export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: ProfileDialogProps) {
-  const [kind, setKind] = useState<ProfileKind>(profile?.kind ?? initialKind);
+  const [kind, setKind] = useState<ProfileKind>(profile?.kind === 'ssh' ? 'ssh' : profile?.kind === 'database' ? 'database' : initialKind);
   const [engine, setEngine] = useState<DatabaseEngine>(profile?.kind === 'database' ? profile.engine : 'postgres');
   const [name, setName] = useState(profile?.name ?? '');
   const [group, setGroup] = useState(profile?.groupId ?? '');
@@ -38,8 +40,12 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
   const [secure, setSecure] = useState(profile?.kind === 'database' ? Boolean(profile.options.tls ?? profile.engine !== 'memcached') : true);
   const [authMode, setAuthMode] = useState<AuthMode>(profile?.kind === 'ssh' ? profile.authentication : 'password');
   const [privateKeyPath, setPrivateKeyPath] = useState(profile?.kind === 'ssh' ? profile.privateKeyPath ?? '' : '');
+  const [keyFingerprint, setKeyFingerprint] = useState(profile?.kind === 'ssh' ? profile.keyFingerprint ?? '' : '');
+  const [keys, setKeys] = useState<SshKeyMetadata[]>([]);
+  const [showKeyManager, setShowKeyManager] = useState(false);
   const [saving, setSaving] = useState(false);
   const isSqlite = kind === 'database' && engine === 'sqlite';
+  useEffect(() => { if (kind === 'ssh') void window.productivityApi.sshKeys.list().then((result) => { if (result.ok) setKeys(result.value); }); }, [kind]);
 
   function selectEngine(nextEngine: DatabaseEngine) {
     setEngine(nextEngine);
@@ -55,7 +61,7 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
     const groupId = group.trim() || null;
     const secrets: Record<string, string> = {};
     if (password.trim()) secrets.password = password;
-    if (passphrase.trim()) secrets.passphrase = passphrase;
+    if (passphrase.trim() && !(kind === 'ssh' && keyFingerprint)) secrets.passphrase = passphrase;
 
     const savedProfile: ProfileSaveInput['profile'] = kind === 'database'
       ? {
@@ -80,12 +86,13 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
           id,
           name: name.trim(),
           groupId,
-          ...(profile?.secretRevision ? { secretRevision: profile.secretRevision } : {}),
+          ...(profile?.secretRevision && !(authMode === 'private-key-file' && keyFingerprint) ? { secretRevision: profile.secretRevision } : {}),
           host: host.trim(),
           port: Number(port),
           username: username.trim(),
           authentication: authMode,
-          ...(authMode === 'private-key-file' ? { privateKeyPath: privateKeyPath.trim() } : {}),
+          ...(authMode === 'private-key-file' && keyFingerprint ? { keyFingerprint } : {}),
+          ...(authMode === 'private-key-file' && !keyFingerprint && privateKeyPath.trim() ? { privateKeyPath: privateKeyPath.trim() } : {}),
         };
 
     const saved = await onSave({ profile: savedProfile, ...(Object.keys(secrets).length ? { secrets } : {}) });
@@ -94,6 +101,7 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
   }
 
   return (
+    <>
     <div className="dialog-scrim" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-dialog-title">
         <div className="dialog-heading">
@@ -169,15 +177,16 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
                     </label>
                     {authMode === 'private-key-file' && (
                       <>
+                        {privateKeyPath && !keyFingerprint && <div className="field field-wide"><span>Legacy private key file</span><code>{privateKeyPath}</code><small>This existing profile will keep working. Import the key to stop using a file path.</small></div>}
                         <label className="field field-wide">
-                          <span>Private key path</span>
-                          <input required value={privateKeyPath} onChange={(event) => setPrivateKeyPath(event.target.value)} placeholder="C:\\Users\\you\\.ssh\\id_ed25519" />
-                          <small>Select the private key matching the public key authorized on the SSH server.</small>
+                          <span>Managed SSH key</span>
+                          <select required={!privateKeyPath} value={keyFingerprint} onChange={(event) => setKeyFingerprint(event.target.value)}>
+                            <option value="">{privateKeyPath ? 'Keep legacy key file' : 'Choose a key…'}</option>
+                            {keys.map((key) => <option key={key.fingerprint} value={key.fingerprint}>{key.label} · {key.algorithm}</option>)}
+                          </select>
                         </label>
-                        <label className="field field-wide">
-                          <span>Key passphrase <em>{profile ? 'Leave blank to keep saved passphrase' : 'Optional'}</em></span>
-                          <input type="password" autoComplete="new-password" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} />
-                        </label>
+                        <div className="dialog-footer field-wide"><button type="button" className="button button-secondary" onClick={() => setShowKeyManager(true)}>{privateKeyPath && !keyFingerprint ? 'Import key into manager…' : 'Manage keys…'}</button></div>
+                        {!keyFingerprint && !privateKeyPath && <p className="field-hint field-wide">Add a key in the manager, then select it here.</p>}
                       </>
                     )}
                   </>
@@ -208,5 +217,7 @@ export function ProfileDialog({ kind: initialKind, profile, onClose, onSave }: P
         </form>
       </section>
     </div>
+    {showKeyManager && <SshKeyManagerDialog initialLabel={name} defaultImportPath={privateKeyPath || undefined} onClose={() => setShowKeyManager(false)} onSelect={(key) => { setKeys((current) => current.some((item) => item.fingerprint === key.fingerprint) ? current.map((item) => item.fingerprint === key.fingerprint ? key : item) : [...current, key]); setKeyFingerprint(key.fingerprint); setPrivateKeyPath(''); setShowKeyManager(false); }} />}
+    </>
   );
 }

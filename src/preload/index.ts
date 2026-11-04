@@ -26,6 +26,18 @@ const productivityApi: ProductivityApi = {
     download: (input) => ipcRenderer.invoke('sftp:download', input),
     onTransferProgress: (listener) => subscribe('sftp:transfer-progress', listener),
   },
+  files: {
+    connect: (input) => ipcRenderer.invoke('files:connect', input),
+    disconnect: (input) => ipcRenderer.invoke('files:disconnect', input),
+    list: (input) => ipcRenderer.invoke('files:list', input),
+    makeDirectory: (input) => ipcRenderer.invoke('files:mkdir', input),
+    remove: (input) => ipcRenderer.invoke('files:remove', input),
+    upload: (input) => ipcRenderer.invoke('files:upload', input),
+    download: (input) => ipcRenderer.invoke('files:download', input),
+    reviewHostKey: (input) => ipcRenderer.invoke('files:review-host-key', input),
+    onHostKey: (listener) => subscribe('files:host-key', listener),
+    onTransferProgress: (listener) => subscribe('files:transfer-progress', listener),
+  },
   database: {
     connect: (input) => ipcRenderer.invoke('database:connect', input),
     close: (input) => ipcRenderer.invoke('database:close', input),
@@ -52,6 +64,20 @@ const productivityApi: ProductivityApi = {
     list: () => ipcRenderer.invoke('profiles:list', {}),
     save: (input) => ipcRenderer.invoke('profiles:save', input),
     remove: (id) => ipcRenderer.invoke('profiles:remove', { id }),
+  },
+  connectionDirectory: {
+    get: () => ipcRenderer.invoke('connection-directory:get', {}),
+    choose: () => ipcRenderer.invoke('connection-directory:choose', {}),
+    set: (input) => ipcRenderer.invoke('connection-directory:set', input),
+  },
+  sshKeys: {
+    list: () => ipcRenderer.invoke('ssh-keys:list', {}),
+    import: (input) => ipcRenderer.invoke('ssh-keys:import', input),
+    generate: (input) => ipcRenderer.invoke('ssh-keys:generate', input),
+    rename: (input) => ipcRenderer.invoke('ssh-keys:rename', input),
+    changePassphrase: (input) => ipcRenderer.invoke('ssh-keys:change-passphrase', input),
+    remove: (input) => ipcRenderer.invoke('ssh-keys:remove', input),
+    exportPublic: (input) => ipcRenderer.invoke('ssh-keys:export-public', input),
   },
 };
 

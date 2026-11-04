@@ -9,13 +9,14 @@ import type { Result } from '@shared/contracts';
 import type { ProfileStore } from '../storage/profile-store.js';
 import type { SecretStore } from '../storage/secret-store.js';
 import { KnownHostsStore } from './known-hosts-store.js';
+import type { SshKeyManager } from './ssh-key-manager.js';
 
 type Session = { ownerId: number; profileId: string; client: SshClient; webContents: WebContents; descriptor: SshSessionDescriptor };
 type PendingTrust = { ownerId: number; profileId: string; host: string; port: number; client: SshClient; fingerprint: string; changed: boolean; verify(valid: boolean): void; timer: NodeJS.Timeout };
 export class SshSessionManager {
   private readonly sessions = new Map<string, Session>();
   private readonly pendingTrust = new Map<string, PendingTrust>();
-  constructor(private readonly profiles: ProfileStore, private readonly secrets: SecretStore, private readonly knownHosts: KnownHostsStore) {}
+  constructor(private readonly profiles: ProfileStore, private readonly secrets: SecretStore, private readonly knownHosts: KnownHostsStore, private readonly sshKeys: SshKeyManager) {}
 
   async connect(ownerId: number, profileId: string, webContents: WebContents): Promise<Result<SshSessionDescriptor>> {
     try {
@@ -93,6 +94,10 @@ export class SshSessionManager {
       return { ...base, password: secrets.password };
     }
     if (profile.authentication === 'private-key-file') {
+      if (profile.keyFingerprint) {
+        const key = await this.sshKeys.getPrivateKey(profile.keyFingerprint);
+        return { ...base, privateKey: key.privateKey, ...(key.passphrase ? { passphrase: key.passphrase } : {}) };
+      }
       if (!profile.privateKeyPath) throw new Error('The private key path is missing.');
       const key = await readFile(profile.privateKeyPath);
       return { ...base, privateKey: key, ...(secrets.passphrase ? { passphrase: secrets.passphrase } : {}) };

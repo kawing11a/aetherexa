@@ -21,7 +21,7 @@ export function ConnectionSidebar({
 }: ConnectionSidebarProps) {
   const search = query.trim().toLocaleLowerCase();
   const filtered = profiles.filter((profile) =>
-    `${profile.name} ${profile.groupId ?? ''} ${profile.kind === 'database' ? engineLabel(profile.engine) : profile.host}`
+    `${profile.name} ${profile.groupId ?? ''} ${profile.kind === 'database' ? engineLabel(profile.engine) : profile.kind === 'ssh' ? profile.host : `${profile.protocol} ${profile.protocol === 's3' ? profile.bucket : 'host' in profile ? profile.host : ''}`}`
       .toLocaleLowerCase()
       .includes(search),
   );
@@ -68,12 +68,12 @@ export function ConnectionSidebar({
                 <div className={`profile-row${profile.id === activeProfileId ? ' is-active' : ''}`} key={profile.id}>
                   <button className="profile-open" onClick={() => onOpen(profile.id)}>
                     <span className={`profile-kind-mark mark-${profile.kind}`} aria-hidden="true">
-                      {profile.kind === 'database' ? 'DB' : 'SH'}
+                      {profile.kind === 'database' ? 'DB' : profile.kind === 'ssh' ? 'SH' : 'FT'}
                     </span>
                     <span className="profile-copy">
                       <span className="profile-name">{profile.name}</span>
                       <span className="profile-detail">
-                        {profile.kind === 'database' ? engineLabel(profile.engine) : `${profile.username}@${profile.host}`}
+                        {profile.kind === 'database' ? engineLabel(profile.engine) : profile.kind === 'ssh' ? `${profile.username}@${profile.host}` : profile.protocol === 's3' ? `${profile.bucket} · ${profile.region}` : `${profile.username}@${('host' in profile) ? profile.host : ''} · ${profile.protocol.toUpperCase()}`}
                       </span>
                     </span>
                   </button>

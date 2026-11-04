@@ -14,10 +14,12 @@ import type { SshSessionManager } from '@main/ssh/ssh-session-manager';
 import type { SftpSessionManager } from '@main/sftp/sftp-session-manager';
 import type { TerminalSessionManager } from '@main/terminal/terminal-session-manager';
 import type { KnownHostsStore } from '@main/ssh/known-hosts-store';
+import type { SshKeyManager } from '@main/ssh/ssh-key-manager.js';
+import type { FileSessionManager } from '@main/files/file-session-manager.js';
 
 const emptyRequest = z.object({}).strict();
 
-export function registerProfileHandlers(window: BrowserWindow, profileStore: ProfileStore, secretStore: SecretStore, databases: DatabaseSessionManager, ssh: SshSessionManager, sftp: SftpSessionManager, terminals: TerminalSessionManager, knownHosts: KnownHostsStore): void {
+export function registerProfileHandlers(window: BrowserWindow, profileStore: ProfileStore, secretStore: SecretStore, databases: DatabaseSessionManager, ssh: SshSessionManager, sftp: SftpSessionManager, terminals: TerminalSessionManager, knownHosts: KnownHostsStore, sshKeys: SshKeyManager, files: FileSessionManager): void {
 
   for (const channel of ['profiles:list', 'profiles:save', 'profiles:remove']) {
     ipcMain.removeHandler(channel);
@@ -33,7 +35,13 @@ export function registerProfileHandlers(window: BrowserWindow, profileStore: Pro
     assertTrustedSender(event, window);
     const parsed = profileSaveInputSchema.parse(input);
     const profile = parseConnectionProfile(parsed.profile);
+    const keyFingerprint = profile.kind === 'ssh' ? profile.keyFingerprint : profile.kind === 'file-transfer' && 'authentication' in profile && profile.authentication === 'key-manager' ? profile.keyFingerprint : undefined;
+    if (keyFingerprint && !(await sshKeys.hasKey(keyFingerprint))) throw new Error('The selected SSH key is unavailable.');
+    const clearProfileSecrets = Boolean(keyFingerprint || profile.kind === 'file-transfer' && ('authentication' in profile && profile.authentication !== 'password' || 'credentialMode' in profile && profile.credentialMode === 'default-chain'));
     const secrets = parsed.secrets === undefined ? undefined : secretBundleSchema.parse(parsed.secrets);
+    if (clearProfileSecrets && secrets !== undefined) throw new Error('This profile authentication method does not accept profile secrets.');
+    if (profile.kind === 'file-transfer' && 'authentication' in profile && profile.authentication === 'password' && !secrets && !profile.secretRevision) throw new Error('Enter a password before saving this profile.');
+    if (profile.kind === 'file-transfer' && profile.protocol === 's3' && profile.credentialMode === 'static' && (!secrets && !profile.secretRevision || secrets && (!secrets.accessKeyId || !secrets.secretAccessKey))) throw new Error('Static AWS credentials require both access key fields.');
     if (secrets !== undefined) {
       const revision = randomUUID();
       await secretStore.set(profile.id, secrets, revision);
@@ -42,7 +50,12 @@ export function registerProfileHandlers(window: BrowserWindow, profileStore: Pro
       await secretStore.removeRevision(profile.id, profile.secretRevision).catch(() => undefined);
       if (!profile.secretRevision) await secretStore.removeRevision(profile.id).catch(() => undefined);
     } else {
-      await profileStore.save(profile);
+      const managedKeyProfile = clearProfileSecrets ? { ...profile, secretRevision: undefined } : profile;
+      await profileStore.save(managedKeyProfile);
+      if (clearProfileSecrets) {
+        await secretStore.removeRevision(profile.id, profile.secretRevision).catch(() => undefined);
+        if (!profile.secretRevision) await secretStore.removeRevision(profile.id).catch(() => undefined);
+      }
     }
     return undefined;
   }));
@@ -54,6 +67,7 @@ export function registerProfileHandlers(window: BrowserWindow, profileStore: Pro
     sftp.closeProfile(id);
     terminals.closeProfile(id);
     await ssh.closeProfile(id);
+    files.closeProfile(id);
     await knownHosts.remove(id);
     await profileStore.remove(id);
     await secretStore.remove(id);
