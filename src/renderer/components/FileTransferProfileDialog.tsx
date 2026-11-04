@@ -9,11 +9,11 @@ type Protocol = FileTransferProfile['protocol'];
 type RemoteProtocol = Exclude<Protocol, 's3'>;
 const ports: Record<Protocol, number> = { sftp: 22, ftp: 21, 'ftps-explicit': 21, 'ftps-implicit': 990, s3: 443 };
 
-export function FileTransferProfileDialog({ profile, onClose, onSave, visible = true, groups = [], templates = [], reusableValues = [], profiles = [], onBack, onSaveTemplate, onCreateGroup }: { profile?: ConnectionProfile; onClose(): void; onSave(input: ProfileSaveInput): Promise<boolean>; visible?: boolean; groups?: string[]; templates?: ConnectionCatalog['templates']; reusableValues?: ConnectionCatalog['reusableValues']; profiles?: ConnectionProfile[]; onBack?(): void; onSaveTemplate?(template: ConnectionCatalog['templates'][number]): Promise<boolean>; onCreateGroup?(name: string): Promise<boolean> }) {
+export function FileTransferProfileDialog({ profile, onClose, onSave, visible = true, initialProtocol = 'sftp', stepLabel = 'Step 2 of 2', groups = [], templates = [], reusableValues = [], profiles = [], onBack, onSaveTemplate, onCreateGroup }: { profile?: ConnectionProfile; onClose(): void; onSave(input: ProfileSaveInput): Promise<boolean>; visible?: boolean; initialProtocol?: Protocol; stepLabel?: string; groups?: string[]; templates?: ConnectionCatalog['templates']; reusableValues?: ConnectionCatalog['reusableValues']; profiles?: ConnectionProfile[]; onBack?(): void; onSaveTemplate?(template: ConnectionCatalog['templates'][number]): Promise<boolean>; onCreateGroup?(name: string): Promise<boolean> }) {
   const existing = profile?.kind === 'file-transfer' ? profile : undefined;
   const remote = existing && existing.protocol !== 's3' ? existing : undefined;
   const s3 = existing?.protocol === 's3' ? existing : undefined;
-  const [protocol, setProtocol] = useState<Protocol>(existing?.protocol ?? 'sftp');
+  const [protocol, setProtocol] = useState<Protocol>(existing?.protocol ?? initialProtocol);
   const [name, setName] = useState(existing?.name ?? '');
   const [group, setGroup] = useState(existing?.groupId ?? '');
   const [host, setHost] = useState(remote?.host ?? '');
@@ -79,7 +79,7 @@ export function FileTransferProfileDialog({ profile, onClose, onSave, visible = 
   return <>
     <div className="dialog-scrim" style={{ display: visible ? undefined : 'none' }} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="file-profile-title">
-        <div className="dialog-heading"><div><p className="eyebrow">{onBack && !existing ? 'New connection · Step 2 of 2' : 'Independent file connection'}</p><h2 id="file-profile-title">{existing ? 'Edit' : 'Add'} Files profile</h2></div><button className="icon-button" aria-label="Close" onClick={onClose}>×</button></div>
+        <div className="dialog-heading"><div><p className="eyebrow">{onBack && !existing ? `New connection · ${stepLabel}` : 'Independent file connection'}</p><h2 id="file-profile-title">{existing ? 'Edit' : 'Add'} Files profile</h2></div><button className="icon-button" aria-label="Close" onClick={onClose}>×</button></div>
         <form onSubmit={(event) => void submit(event)}><div className="form-grid">
           {!existing && <>
             <label className="field field-wide"><span>Start from a saved connection</span><select defaultValue="" onChange={(event) => useSavedProfile(event.target.value)}><option value="">Choose a compatible profile…</option>{profiles.filter((item) => item.kind === 'file-transfer' && item.protocol === protocol).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -87,7 +87,7 @@ export function FileTransferProfileDialog({ profile, onClose, onSave, visible = 
           </>}
           <label className="field field-wide"><span>Connection name</span><input required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} placeholder="Production files" /></label>
           <ConnectionGroupField value={group} groups={groups} onChange={setGroup} onCreate={onCreateGroup ?? (async (name) => { const result = await window.productivityApi.connectionCatalog.change({ type: 'create-group', name }); return result.ok; })} />
-          <label className="field field-wide"><span>Protocol</span><select value={protocol} onChange={(event) => changeProtocol(event.target.value as Protocol)}><option value="sftp">SFTP</option><option value="ftp">FTP (unencrypted)</option><option value="ftps-explicit">FTPS (explicit TLS)</option><option value="ftps-implicit">FTPS (implicit TLS)</option><option value="s3">AWS S3</option></select></label>
+          {!onBack && <label className="field field-wide"><span>Protocol</span><select value={protocol} onChange={(event) => changeProtocol(event.target.value as Protocol)}><option value="sftp">SFTP</option><option value="ftp">FTP (unencrypted)</option><option value="ftps-explicit">FTPS (explicit TLS)</option><option value="ftps-implicit">FTPS (implicit TLS)</option><option value="s3">AWS S3</option></select></label>}
           {protocol === 's3' ? <>
             <label className="field field-wide"><span>Bucket name</span><input list={`reusable-files-${protocol}-bucket`} required maxLength={63} value={bucket} onChange={(event) => setBucket(event.target.value.toLowerCase())} placeholder="company-production-files" /></label>
             <label className="field field-wide"><span>AWS region</span><input list={`reusable-files-${protocol}-region`} required maxLength={64} value={region} onChange={(event) => setRegion(event.target.value)} placeholder="us-east-1" /></label>

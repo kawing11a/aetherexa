@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ConnectionCatalog, ConnectionProfile } from '@shared/profiles';
+import type { ConnectionCatalog, ConnectionProfile, FileTransferProfile } from '@shared/profiles';
 import type { ProfileSaveInput, UpdateStatus } from '@shared/contracts';
 import { WorkspaceRouter } from '@renderer/workspaces/WorkspaceRouter.js';
 import { ConnectionSidebar } from './ConnectionSidebar.js';
@@ -13,6 +13,7 @@ import aetherexaIcon from '@renderer/assets/aetherexa.png';
 import type { WorkspaceTab } from './WorkspaceTabs.js';
 import { ConnectionWizard } from './ConnectionWizard.js';
 import { GroupManagerDialog } from './GroupManagerDialog.js';
+import { FileTypeWizard } from './FileTypeWizard.js';
 
 type ProfileKind = 'database' | 'ssh';
 
@@ -35,6 +36,8 @@ export function AppShell() {
   const [loading, setLoading] = useState(true);
   const [showNewConnection, setShowNewConnection] = useState(false);
   const [wizardTarget, setWizardTarget] = useState<'database' | 'ssh' | 'files' | null>(null);
+  const [wizardFileProtocol, setWizardFileProtocol] = useState<FileTransferProfile['protocol'] | null>(null);
+  const [choosingFileProtocol, setChoosingFileProtocol] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
 
   const refreshCatalog = useCallback(async () => {
@@ -237,20 +240,23 @@ export function AppShell() {
       )}
       {showFileDialog && <FileTransferProfileDialog key={fileDialogProfile?.id ?? 'new-file'} profile={fileDialogProfile} groups={catalog.groups} onCreateGroup={(name) => changeCatalog({ type: 'create-group', name })} onClose={() => { setShowFileDialog(false); setFileDialogProfile(undefined); }} onSave={saveProfile} />}
       {showNewConnection && <>
-        {!wizardTarget && <ConnectionWizard onClose={() => setShowNewConnection(false)} onChoose={setWizardTarget} />}
+        {!wizardTarget && <ConnectionWizard onClose={() => setShowNewConnection(false)} onChoose={(target) => { setWizardTarget(target); setChoosingFileProtocol(target === 'files'); }} />}
+        {wizardTarget === 'files' && choosingFileProtocol && <FileTypeWizard onClose={() => setShowNewConnection(false)} onBack={() => { setWizardTarget(null); setChoosingFileProtocol(false); }} onChoose={(protocol) => { setWizardFileProtocol(protocol); setChoosingFileProtocol(false); }} />}
         <div style={{ display: wizardTarget === 'database' ? 'contents' : 'none' }}>
           <ProfileDialog kind="database" visible={wizardTarget === 'database'} groups={catalog.groups} profiles={profiles} templates={catalog.templates} reusableValues={catalog.reusableValues} onBack={() => setWizardTarget(null)} onClose={() => setShowNewConnection(false)} onSave={saveProfile} onSaveTemplate={(template) => changeCatalog({ type: 'put-template', template })} onCreateGroup={(name) => changeCatalog({ type: 'create-group', name })} />
         </div>
         <div style={{ display: wizardTarget === 'ssh' ? 'contents' : 'none' }}>
           <ProfileDialog kind="ssh" visible={wizardTarget === 'ssh'} groups={catalog.groups} profiles={profiles} templates={catalog.templates} reusableValues={catalog.reusableValues} onBack={() => setWizardTarget(null)} onClose={() => setShowNewConnection(false)} onSave={saveProfile} onSaveTemplate={(template) => changeCatalog({ type: 'put-template', template })} onCreateGroup={(name) => changeCatalog({ type: 'create-group', name })} />
         </div>
-        <div style={{ display: wizardTarget === 'files' ? 'contents' : 'none' }}>
-          <FileTransferProfileDialog visible={wizardTarget === 'files'} groups={catalog.groups} profiles={profiles} templates={catalog.templates} reusableValues={catalog.reusableValues} onBack={() => setWizardTarget(null)} onClose={() => setShowNewConnection(false)} onSave={saveProfile} onSaveTemplate={(template) => changeCatalog({ type: 'put-template', template })} onCreateGroup={(name) => changeCatalog({ type: 'create-group', name })} />
+        <div style={{ display: wizardTarget === 'files' && !choosingFileProtocol && wizardFileProtocol ? 'contents' : 'none' }}>
+          {(['sftp', 'ftp', 'ftps-explicit', 'ftps-implicit', 's3'] as const).map((protocol) => <div key={protocol} style={{ display: !choosingFileProtocol && wizardFileProtocol === protocol ? 'contents' : 'none' }}>
+            <FileTransferProfileDialog initialProtocol={protocol} stepLabel="Step 3 of 3" visible={!choosingFileProtocol && wizardFileProtocol === protocol} groups={catalog.groups} profiles={profiles} templates={catalog.templates} reusableValues={catalog.reusableValues} onBack={() => setChoosingFileProtocol(true)} onClose={() => setShowNewConnection(false)} onSave={saveProfile} onSaveTemplate={(template) => changeCatalog({ type: 'put-template', template })} onCreateGroup={(name) => changeCatalog({ type: 'create-group', name })} />
+          </div>)}
         </div>
       </>}
       {showGroups && <GroupManagerDialog groups={catalog.groups} onClose={() => setShowGroups(false)} onChange={changeCatalog} />}
       {showUpdateDialog && <UpdateDialog currentVersion={version} status={updateStatus} onCheck={() => void checkForUpdates()} onInstall={() => void installUpdate()} onClose={() => setShowUpdateDialog(false)} />}
-      {showSettingsDialog && <SettingsDialog onClose={() => setShowSettingsDialog(false)} onDirectoryChanged={() => void refreshProfiles()} onOpenUpdates={() => { setShowSettingsDialog(false); setShowUpdateDialog(true); }} />}
+      {showSettingsDialog && <SettingsDialog onClose={() => setShowSettingsDialog(false)} onDirectoryChanged={() => void Promise.all([refreshProfiles(), refreshCatalog()])} onOpenUpdates={() => { setShowSettingsDialog(false); setShowUpdateDialog(true); }} />}
     </div>
   );
 
