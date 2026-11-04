@@ -59,8 +59,8 @@ skip: Packaged app UI and live server checks require external SFTP, FTP, and AWS
 - [x] Run typecheck and build; inspect the bundled main import.
 - [x] Package MSI, Setup.exe, ZIP, RELEASES, and full nupkg.
 - [x] Verify packaged main bundle imports ssh2 through its default export.
-- [ ] Commit and push the fix to feature and default branches.
-- [ ] Publish v0.2.1 and verify its installer and update assets.
+- [x] Commit and push the fix to feature and default branches.
+- [x] Publish v0.2.1 and verify its installer and update assets.
 
 skip: Do not add or run automated tests; the session instructions exclude tests unless requested. Use the reproduced Node ESM import and production bundle/package inspection instead.
 skip: Do not launch the newly built executable through Windows UI automation; that action requires action-time confirmation under the Computer Use policy.
