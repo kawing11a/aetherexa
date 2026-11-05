@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { format, type SqlLanguage } from 'sql-formatter';
 import type { DatabaseEngine, DatabaseProfile } from '@shared/profiles';
-import type { Namespace, QueryPage, DatabaseObject } from '@shared/database';
+import type { Namespace, QueryPage, DatabaseObject, TableDefinition, TableIdentifier } from '@shared/database';
+import { TableBrowser } from './TableBrowser.js';
+import { TableDesignerDialog } from './TableDesignerDialog.js';
 import { engineLabel } from '@renderer/components/ConnectionSidebar.js';
 import { useDatabaseSession } from '@renderer/state/database-sessions.js';
 
@@ -12,10 +14,15 @@ export function SqlWorkspace({ profile }: { profile: DatabaseProfile }) {
   const [namespace, setNamespace] = useState('');
   const [sql, setSql] = useState('SELECT 1');
   const [history, setHistory] = useState<string[]>([]);
+  const [selectedTable, setSelectedTable] = useState<TableIdentifier | null>(null);
+  const [viewMode, setViewMode] = useState<'query' | 'table'>('query');
+  const [designer, setDesigner] = useState<{ namespace: string; definition?: TableDefinition } | null>(null);
+  const [objectRefresh, setObjectRefresh] = useState(0);
   const [page, setPage] = useState<QueryPage | null>(null);
   const [error, setError] = useState('');
   const [running, setRunning] = useState<string | null>(null);
   const cancelledOperations = useRef(new Set<string>());
+  const objectRequest = useRef(0);
 
   useEffect(() => {
     if (state.phase !== 'ready') return;
@@ -27,15 +34,19 @@ export function SqlWorkspace({ profile }: { profile: DatabaseProfile }) {
   }, [state]);
   useEffect(() => {
     if (state.phase !== 'ready' || !namespace) return;
+    const requestId = ++objectRequest.current;
     void window.productivityApi.database.listObjects({ sessionId: state.session.sessionId, namespace }).then((result) => {
+      if (requestId !== objectRequest.current) return;
       if (result.ok) setObjects(result.value); else setError(result.error.message);
     });
-  }, [state, namespace]);
+    return () => { objectRequest.current++; };
+  }, [state, namespace, objectRefresh]);
 
   async function runQuery() {
     if (state.phase !== 'ready' || !sql.trim()) return;
     const operationId = crypto.randomUUID();
     setHistory((current) => [sql, ...current].slice(0, 50));
+    setViewMode('query');
     setRunning(operationId); setError('');
     const result = await window.productivityApi.database.runSql({ sessionId: state.session.sessionId, operationId, sql, limit: 10_000 });
     if (cancelledOperations.current.delete(operationId)) return;
@@ -86,19 +97,23 @@ export function SqlWorkspace({ profile }: { profile: DatabaseProfile }) {
         <div className="sql-layout">
           <aside className="object-tree">
             <div className="workspace-panel-title">OBJECTS</div>
-            <label className="namespace-select"><span>Schema</span><select value={namespace} onChange={(event) => setNamespace(event.target.value)}>{namespaces.map((item, index) => <option key={item.databaseName + item.name + index} value={item.name}>{item.name}</option>)}</select></label>
-            <div className="object-list">{objects.map((item) => <button key={item.name} onClick={() => setSql((text) => text + (text.endsWith('\n') ? '' : '\n') + 'SELECT * FROM ' + objectReference(profile, namespace, item.name) + ';')}><span>{item.kind === 'view' ? '◉' : '▦'}</span>{item.name}</button>)}</div>
+            <label className="namespace-select"><span>Schema</span><select value={namespace} onChange={(event) => { objectRequest.current++; setObjects([]); setNamespace(event.target.value); }}>{namespaces.map((item, index) => <option key={item.databaseName + item.name + index} value={item.name}>{item.name}</option>)}</select></label>
+            <button className="button button-subtle button-small" disabled={!namespace} onClick={() => setDesigner({ namespace })}>Create table</button>
+            <div className="object-list">{objects.map((item) => <div className="table-object" key={item.name}><button onClick={() => setSql((text) => text + (text.endsWith('\n') ? '' : '\n') + 'SELECT * FROM ' + objectReference(profile, namespace, item.name) + ';')}><span>{item.kind === 'view' ? '◉' : '▦'}</span>{item.name}</button>{item.kind === 'table' && <button aria-label={`Open table ${item.name}`} onClick={() => { setSelectedTable({ namespace, name: item.name }); setViewMode('table'); }}>Open</button>}</div>)}</div>
             <div className="data-toolbar"><div className="workspace-panel-title">QUERY HISTORY</div><button className="button button-subtle button-small" onClick={() => setHistory([])} disabled={!history.length}>Clear</button></div>
             <div className="object-list" aria-label="Recent queries">{history.map((query, index) => <button key={index} title={query} onClick={() => setSql(query)}>{query.replace(/\s+/g, ' ').trim()}</button>)}</div>
           </aside>
           <div className="sql-main">
             <div className="sql-editor-heading"><span>SQL Editor</span><div className="data-toolbar" style={{ marginLeft: 'auto' }}><button className="button button-subtle button-small" onClick={formatQuery} disabled={!sql.trim()}>Format</button>{running ? <button className="button button-subtle" onClick={() => void cancelQuery()}>Cancel</button> : <button className="button button-primary button-small" onClick={() => void runQuery()}>Run query</button>}</div></div>
             <textarea className="sql-editor" spellCheck={false} aria-label="SQL query editor" value={sql} onChange={(event) => setSql(event.target.value)} />
-            <div className="results-heading"><span>Results</span>{page && <><small>{page.rows.length.toLocaleString()} rows{page.truncated ? ' · output capped at ' + (page.truncationReason ?? 'limit') : ''}</small><button className="button button-subtle button-small" onClick={downloadCsv}>Export CSV</button></>}</div>
-            {page ? <ResultsGrid page={page} /> : <div className="results-empty">Run a query to view results.</div>}
+            <div className="table-view-tabs" aria-label="Workspace view"><button className={viewMode === 'query' ? 'selected' : ''} onClick={() => setViewMode('query')}>Query results</button><button className={viewMode === 'table' ? 'selected' : ''} disabled={!selectedTable} onClick={() => setViewMode('table')}>Table browser</button></div>
+            <div hidden={viewMode !== 'query'}><div className="results-heading"><span>Results</span>{page && <><small>{page.rows.length.toLocaleString()} rows{page.truncated ? ' · output capped at ' + (page.truncationReason ?? 'limit') : ''}</small><button className="button button-subtle button-small" onClick={downloadCsv}>Export CSV</button></>}</div>
+            {page ? <ResultsGrid page={page} /> : <div className="results-empty">Run a query to view results.</div>}</div>
+            {selectedTable && <div hidden={viewMode !== 'table'}><TableBrowser key={JSON.stringify([state.session.sessionId, selectedTable.namespace, selectedTable.name, objectRefresh])} sessionId={state.session.sessionId} table={selectedTable} refreshToken={objectRefresh} onDesign={(definition) => setDesigner({ namespace: definition.table.namespace, definition })} /></div>}
           </div>
         </div>
       )}
+      {state.phase === 'ready' && designer && <TableDesignerDialog key={JSON.stringify([state.session.sessionId, designer.namespace, designer.definition?.table.name ?? null])} sessionId={state.session.sessionId} namespace={designer.namespace} definition={designer.definition} onClose={() => setDesigner(null)} onApplied={(table) => { objectRequest.current++; setObjects([]); setDesigner(null); setSelectedTable(table); setViewMode('table'); setObjectRefresh((value) => value + 1); }} />}
     </section>
   );
 }

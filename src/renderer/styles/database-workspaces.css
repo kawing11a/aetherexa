@@ -91,3 +91,41 @@
 .files-delete:hover { color: #ffaaaa; }
 .files-progress { flex: none; padding: 9px 18px; border-top: 1px solid #273544; color: #a9c4b7; font-size: 11px; }
 @media (max-width: 860px) { .files-table-head, .files-row { grid-template-columns: minmax(140px, 1fr) 75px 80px 50px; } .files-table-head > :nth-child(4), .files-row > :nth-child(4) { display: none; } }
+
+/* SQL table tools */
+.table-object { display: flex; align-items: center; min-width: 0; }
+.table-object > button:first-child { flex: 1; min-width: 0; }
+.table-object > button:last-child:not(:first-child) { flex: none; color: #85cbb7; }
+.table-view-tabs { display: flex; gap: 18px; border-bottom: 1px solid #293845; }
+.table-view-tabs button { padding: 8px 1px; border: 0; border-bottom: 2px solid transparent; color: #8799a9; background: transparent; font-size: 11px; cursor: pointer; }
+.table-view-tabs button.selected { border-bottom-color: #72cdb0; color: #d6e9e1; }
+.table-view-tabs button:disabled { opacity: .45; cursor: default; }
+.table-browser { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.table-meta-rail { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid #2c4544; border-radius: 7px; background: #14231f; }
+.table-meta-rail > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.table-meta-rail > div:first-child { flex: 1; }
+.table-meta-rail small { color: #83a69a; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.table-meta-rail strong { overflow: hidden; color: #d4e9e0; font: 11px 'Cascadia Mono', Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.table-meta-rail strong span { color: #72988c; }
+.table-controls, .table-filter-panel { padding: 5px 8px; border: 1px solid #293845; border-radius: 6px; background: #111b24; }
+.table-filter-list { display: flex; flex-wrap: wrap; gap: 5px; padding: 3px 0; }
+.table-browser input:not([type=checkbox]), .table-dialog input:not([type=checkbox]), .table-dialog select { min-width: 0; padding: 6px 8px; border: 1px solid #304051; border-radius: 5px; color: #d2dce6; background: #121c26; font-size: 11px; }
+.table-browser-grid td:last-child { white-space: nowrap; }
+.table-browser-grid td:last-child .button { margin-right: 4px; }
+.table-dialog-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 20px; background: #05090dd9; }
+.table-dialog { width: min(860px, 100%); max-height: min(760px, 90vh); overflow: auto; padding: 18px; border: 1px solid #41584f; border-radius: 9px; color: #dce6ed; background: #17232d; box-shadow: 0 18px 70px #000b; }
+.table-dialog h2 { margin: 0 0 6px; font-size: 16px; }
+.table-dialog p { margin: 0 0 12px; color: #a4b4bf; font-size: 11px; }
+.table-dialog fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.table-label { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: #aebdc9; font-size: 11px; }
+.table-fields { display: flex; flex-direction: column; gap: 7px; margin: 8px 0; }
+.table-field { display: grid; grid-template-columns: minmax(150px, 1fr) 110px minmax(160px, 2fr); align-items: center; gap: 8px; padding: 7px; border: 1px solid #2c3d4b; border-radius: 5px; }
+.table-field label, .table-column-draft label { color: #c4d1db; font-size: 11px; }
+.table-field small, .table-column-draft small { color: #8498a7; }
+.table-column-draft { padding: 8px; border: 1px solid #2c3d4b; border-radius: 6px; }
+.table-column-draft input[type=number] { width: 76px; }
+.table-preview { margin-top: 12px; padding: 10px; border: 1px solid #47665b; border-radius: 6px; color: #d4e5dd; font-size: 11px; }
+.table-preview pre { overflow: auto; max-height: 160px; padding: 10px; color: #c6ded3; background: #0d1716; font: 11px/1.5 'Cascadia Mono', Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.table-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.table-dialog :focus-visible, .table-browser :focus-visible, .table-view-tabs :focus-visible { outline: 2px solid #77d6b8; outline-offset: 2px; }
+@media (max-width: 800px) { .table-field { grid-template-columns: 1fr; } .table-meta-rail > div:first-child { flex-basis: 100%; } }
