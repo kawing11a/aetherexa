@@ -16,6 +16,7 @@ Initial dependency set for the Windows desktop shell. Versions are exact pins fr
 | `@vitejs/plugin-react` | 6.2.1 | MIT | React transform |
 | `typescript` | 6.0.3 | Apache-2.0 | Type checking and source language |
 | `zod` | 4.6.7 | MIT | Runtime validation |
+| `sql-formatter` | 15.9.0 | MIT | Format SQL for supported database dialects |
 | `@types/node` | 26.6.6 | MIT | Node type declarations |
 | `@types/react` / `@types/react-dom` | 19.3.0 | MIT | React type declarations |
 | `glob` (override) | 14.0.2 | BlueOak-1.0.0 | Patched Electron packaging transitive dependency |

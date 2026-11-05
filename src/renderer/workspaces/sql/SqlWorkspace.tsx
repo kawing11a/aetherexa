@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { DatabaseProfile } from '@shared/profiles';
+import { format, type SqlLanguage } from 'sql-formatter';
+import type { DatabaseEngine, DatabaseProfile } from '@shared/profiles';
 import type { Namespace, QueryPage, DatabaseObject } from '@shared/database';
 import { engineLabel } from '@renderer/components/ConnectionSidebar.js';
 import { useDatabaseSession } from '@renderer/state/database-sessions.js';
@@ -10,6 +11,7 @@ export function SqlWorkspace({ profile }: { profile: DatabaseProfile }) {
   const [objects, setObjects] = useState<DatabaseObject[]>([]);
   const [namespace, setNamespace] = useState('');
   const [sql, setSql] = useState('SELECT 1');
+  const [history, setHistory] = useState<string[]>([]);
   const [page, setPage] = useState<QueryPage | null>(null);
   const [error, setError] = useState('');
   const [running, setRunning] = useState<string | null>(null);
@@ -33,11 +35,18 @@ export function SqlWorkspace({ profile }: { profile: DatabaseProfile }) {
   async function runQuery() {
     if (state.phase !== 'ready' || !sql.trim()) return;
     const operationId = crypto.randomUUID();
+    setHistory((current) => [sql, ...current].slice(0, 50));
     setRunning(operationId); setError('');
     const result = await window.productivityApi.database.runSql({ sessionId: state.session.sessionId, operationId, sql, limit: 10_000 });
     if (cancelledOperations.current.delete(operationId)) return;
     if (result.ok) setPage(result.value); else { setError(result.error.message); if (result.error.code === 'completion-unknown') reconnect(); }
     setRunning((current) => current === operationId ? null : current);
+  }
+  function formatQuery() {
+    const language = formatterLanguage[profile.engine];
+    if (!language || !sql.trim()) return;
+    try { setSql(format(sql, { language })); setError(''); }
+    catch { setError('Could not format this SQL. Check the statement and try again.'); }
   }
   async function cancelQuery() {
     if (state.phase !== 'ready' || !running) return;
@@ -79,9 +88,11 @@ export function SqlWorkspace({ profile }: { profile: DatabaseProfile }) {
             <div className="workspace-panel-title">OBJECTS</div>
             <label className="namespace-select"><span>Schema</span><select value={namespace} onChange={(event) => setNamespace(event.target.value)}>{namespaces.map((item, index) => <option key={item.databaseName + item.name + index} value={item.name}>{item.name}</option>)}</select></label>
             <div className="object-list">{objects.map((item) => <button key={item.name} onClick={() => setSql((text) => text + (text.endsWith('\n') ? '' : '\n') + 'SELECT * FROM ' + objectReference(profile, namespace, item.name) + ';')}><span>{item.kind === 'view' ? '◉' : '▦'}</span>{item.name}</button>)}</div>
+            <div className="data-toolbar"><div className="workspace-panel-title">QUERY HISTORY</div><button className="button button-subtle button-small" onClick={() => setHistory([])} disabled={!history.length}>Clear</button></div>
+            <div className="object-list" aria-label="Recent queries">{history.map((query, index) => <button key={index} title={query} onClick={() => setSql(query)}>{query.replace(/\s+/g, ' ').trim()}</button>)}</div>
           </aside>
           <div className="sql-main">
-            <div className="sql-editor-heading"><span>SQL Editor</span>{running ? <button className="button button-subtle" onClick={() => void cancelQuery()}>Cancel</button> : <button className="button button-primary button-small" onClick={() => void runQuery()}>Run query</button>}</div>
+            <div className="sql-editor-heading"><span>SQL Editor</span><div className="data-toolbar" style={{ marginLeft: 'auto' }}><button className="button button-subtle button-small" onClick={formatQuery} disabled={!sql.trim()}>Format</button>{running ? <button className="button button-subtle" onClick={() => void cancelQuery()}>Cancel</button> : <button className="button button-primary button-small" onClick={() => void runQuery()}>Run query</button>}</div></div>
             <textarea className="sql-editor" spellCheck={false} aria-label="SQL query editor" value={sql} onChange={(event) => setSql(event.target.value)} />
             <div className="results-heading"><span>Results</span>{page && <><small>{page.rows.length.toLocaleString()} rows{page.truncated ? ' · output capped at ' + (page.truncationReason ?? 'limit') : ''}</small><button className="button button-subtle button-small" onClick={downloadCsv}>Export CSV</button></>}</div>
             {page ? <ResultsGrid page={page} /> : <div className="results-empty">Run a query to view results.</div>}
@@ -91,6 +102,8 @@ export function SqlWorkspace({ profile }: { profile: DatabaseProfile }) {
     </section>
   );
 }
+
+const formatterLanguage: Partial<Record<DatabaseEngine, SqlLanguage>> = { mysql: 'mysql', postgres: 'postgresql', sqlserver: 'transactsql', oracle: 'plsql', sqlite: 'sqlite' };
 
 function ResultsGrid({ page }: { page: QueryPage }) {
   const visible = page.rows.slice(0, 300);
