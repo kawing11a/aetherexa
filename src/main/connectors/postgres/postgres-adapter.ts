@@ -103,6 +103,7 @@ async function transaction<T>(pool: Pool, operation: (tx: Transaction) => Promis
     active = true;
     await client.query("SET LOCAL statement_timeout = '30s'");
     await client.query("SET LOCAL lock_timeout = '5s'");
+    await client.query("SET LOCAL DateStyle = 'ISO, YMD'");
     const context: Transaction = { client, dispatched: false };
     try {
       const result = await operation(context);
@@ -199,7 +200,7 @@ function changeStatement(change: TableChange, definition: TableDefinition | null
     if (definition.columns.some((item) => item.name === change.to)) invalid('A column already exists with this name.');
     return 'ALTER TABLE ' + name + ' RENAME COLUMN ' + quoteIdentifier(change.from) + ' TO ' + quoteIdentifier(change.to);
   }
-  column(definition, change.column);
+  if (column(definition, change.column).primaryKeyOrder !== null) throw new ConnectorError('unsupported-feature', 'Primary-key columns cannot be dropped with table tools.');
   return 'ALTER TABLE ' + name + ' DROP COLUMN ' + quoteIdentifier(change.column);
 }
 function tableOperations(pool: Pool): SqlTableOperations {
@@ -220,6 +221,7 @@ function tableOperations(pool: Pool): SqlTableOperations {
         const name = quoteIdentifier(filter.column);
         if (filter.operator === 'is-null') return name + ' IS NULL';
         if (filter.operator === 'is-not-null') return name + ' IS NOT NULL';
+        if (!('value' in filter)) invalid('Select a supported filter operator.');
         if (filter.operator === 'equals') {
           if (filter.value === null) invalid('Use a null filter for null values.');
           if (typeof filter.value === 'string' && Buffer.byteLength(filter.value, 'utf8') > 4096) invalid('Filter text exceeds 4 KiB.');
@@ -229,16 +231,22 @@ function tableOperations(pool: Pool): SqlTableOperations {
         if (!/^(text|character varying|character)(\(|$)/.test(descriptor.typeName)) throw new ConnectorError('unsupported-feature', 'Contains is supported only for text columns.');
         return name + ' LIKE ' + bind('%' + filter.value.replace(/[!%_]/g, '!$&') + '%') + " ESCAPE '!'";
       });
+      const source = '"aetherexa_rows".';
       const order: string[] = [];
       if (request.sort) {
         column(definition, request.sort.column);
         if (request.sort.direction !== 'asc' && request.sort.direction !== 'desc') invalid('Select a supported sort direction.');
-        order.push(quoteIdentifier(request.sort.column) + ' ' + request.sort.direction.toUpperCase());
+        order.push(source + quoteIdentifier(request.sort.column) + ' ' + request.sort.direction.toUpperCase());
       }
       const keys = definition.columns.filter((item) => item.primaryKeyOrder !== null).sort((a, b) => (a.primaryKeyOrder ?? 0) - (b.primaryKeyOrder ?? 0)).map((item) => item.name);
-      for (const key of keys) if (request.sort?.column !== key) order.push(quoteIdentifier(key) + ' ASC');
-      order.push('tableoid ASC', 'ctid ASC');
-      const sql = 'SELECT ' + definition.columns.map((item) => quoteIdentifier(item.name)).join(', ') + ' FROM ' + tableName(request.table) + (filters.length ? ' WHERE ' + filters.join(' AND ') : '') + ' ORDER BY ' + order.join(', ') + ' LIMIT ' + bind(request.limit + 1) + ' OFFSET ' + bind(request.offset);
+      for (const key of keys) if (request.sort?.column !== key) order.push(source + quoteIdentifier(key) + ' ASC');
+      order.push(source + 'tableoid ASC', source + 'ctid ASC');
+      const projection = definition.columns.map((item) => {
+        const name = quoteIdentifier(item.name);
+        const asText = ['date', 'json', 'jsonb'].includes(item.typeName) || /^timestamp(?:\(\d+\))? (?:with|without) time zone$/.test(item.typeName);
+        return asText ? name + '::pg_catalog.text AS ' + name : name;
+      }).join(', ');
+      const sql = 'SELECT ' + projection + ' FROM ' + tableName(request.table) + ' AS "aetherexa_rows"' + (filters.length ? ' WHERE ' + filters.join(' AND ') : '') + ' ORDER BY ' + order.join(', ') + ' LIMIT ' + bind(request.limit + 1) + ' OFFSET ' + bind(request.offset);
       let cursor: Cursor<unknown[]> | undefined;
       try {
         cursor = client.query(new Cursor(sql, values, { rowMode: 'array' }));
