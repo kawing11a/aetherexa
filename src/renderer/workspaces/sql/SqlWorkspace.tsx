@@ -49,7 +49,8 @@ export function SqlWorkspace({ profile }: { profile: DatabaseProfile }) {
       setPage(null);
       setError(result.error.message);
       reconnect();
-    } else if (!result.ok && result.error.code !== 'operation-not-running') setError(result.error.message);
+    } else if (!result.ok && result.error.code === 'operation-not-running') cancelledOperations.current.delete(operationId);
+    else if (!result.ok) setError(result.error.message);
   }
   const csv = useMemo(() => page ? createCsv(page) : '', [page]);
   const downloadCsv = () => {
