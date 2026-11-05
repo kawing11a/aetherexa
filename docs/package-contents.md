@@ -8,7 +8,7 @@ The Windows x64 `package` command creates three outputs on every successful buil
 
 The app checks `update.electronjs.org` after launch and hourly when installed from the Squirrel Setup.exe. Updates download in the background; Aetherexa asks whether to restart now or later to apply the downloaded update. This uses Electron's built-in Windows `autoUpdater` and Squirrel's `RELEASES`/`.nupkg` assets. MSI installations do not use the Squirrel updater and are upgraded by installing a newer MSI. Development builds do not check for updates.
 
-Pushing a semantic-version tag such as `v0.1.0` starts [the Windows release workflow](../.github/workflows/release.yml). The workflow builds the MSI, Squirrel Setup.exe, and portable ZIP, then attaches those files together with `RELEASES` and the full `.nupkg` to the GitHub Release. It uses the repository's `GITHUB_TOKEN`; no personal token is stored in the app.
+Pushing a semantic-version tag such as `v0.1.0` starts [the Windows release workflow](../.github/workflows/release.yml). The workflow builds the MSI, Squirrel Setup.exe, and portable ZIP, then attaches those files together with `RELEASES`, the full `.nupkg`, an SPDX software bill of materials, and third-party license notices to the GitHub Release. It uses the repository's `GITHUB_TOKEN`; no personal token is stored in the app.
 
-Inspect the package before sharing it. Add an SBOM and per-dependency notices before a public release; see [dependency decisions](dependencies.md).
+The workflow generates the SBOM from the installed production dependency tree. `scripts/generate-third-party-notices.cjs` writes each SBOM dependency's declared license and any bundled license or notice files. See [dependency decisions](dependencies.md) for the direct dependency list and license choices.
 

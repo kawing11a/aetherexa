@@ -31,6 +31,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate dependency disclosures
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          npm sbom --omit=dev --sbom-format=spdx --sbom-type=application | Set-Content -LiteralPath release/aetherexa-sbom.spdx.json -Encoding utf8NoBOM
+          node scripts/generate-third-party-notices.cjs release/THIRD-PARTY-NOTICES.md
+
       - name: Install WiX Toolset 3.14.1
         shell: pwsh
         run: |
@@ -54,3 +61,5 @@ jobs:
             release/make/**/*.zip
             release/make/squirrel.windows/x64/RELEASES
             release/make/squirrel.windows/x64/*.nupkg
+            release/aetherexa-sbom.spdx.json
+            release/THIRD-PARTY-NOTICES.md
