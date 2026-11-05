@@ -8,7 +8,7 @@ import { capture, ConnectorError, normalizeConnectorError, ok } from '../connect
 import type { DatabaseAdapter, DatabaseSession, SqlSession, SqlTableOperations, SqlTableChangePlan } from '../contracts.js';
 import { optionalDatabase, password, requiredHost, requiredPort, requiredUsername, tlsEnabled } from '../relational/connection-options.js';
 import { BoundedPageBuilder } from '../relational/row-normalizer.js';
-import type { ColumnDescriptor, ColumnTypeOption, TableIdentifier, TableDefinition, TableChange, NewTableColumn, WireValue, TablePage, RowInsert, RowUpdate, RowDelete } from '@shared/database';
+import type { ColumnDescriptor, ColumnTypeOption, TableIdentifier, TableDefinition, TableChange, TableColumn, NewTableColumn, WireValue, TablePage, RowInsert, RowUpdate, RowDelete } from '@shared/database';
 import { MAX_METADATA_ITEMS } from '../contracts.js';
 
 const capabilities = { namespaces: true, objects: true, queryMode: 'sql' as const, readRows: true, exportRows: true };
@@ -286,6 +286,16 @@ function tableOperations(pool: Pool): SqlTableOperations {
     deleteRow(input) { return mutateRow(pool, { kind: 'delete', input }); },
   };
 }
+function optimisticPredicate(info: TableColumn, parameter: string): string {
+  const name = quoteIdentifier(info.name);
+  const type = info.typeName;
+  const exactText = (expected: string) => name + '::pg_catalog.text COLLATE pg_catalog."C" IS NOT DISTINCT FROM ' + expected + ' COLLATE pg_catalog."C"';
+  if (type === 'json' || type === 'jsonb') return exactText('(' + parameter + '::pg_catalog.' + type + ')::pg_catalog.text');
+  if (/^(text|name|character varying(?:\(\d+\))?)$/.test(type) || /(^|\.)citext$/.test(type)) return exactText(parameter + '::pg_catalog.text');
+  if (/^character(?:\(\d+\))?$/.test(type)) return exactText(parameter + '::pg_catalog.bpchar::pg_catalog.text');
+  if (/^(smallint|integer|bigint|real|double precision|boolean|bytea|date|uuid)$/.test(type) || /^numeric(?:\(\d+,-?\d+\))?$/.test(type) || /^(?:time|timestamp)(?:\(\d+\))? (?:with|without) time zone$/.test(type)) return name + ' IS NOT DISTINCT FROM ' + parameter;
+  throw new ConnectorError('unsupported-feature', 'This column type cannot be checked exactly for optimistic editing.');
+}
 function mutateRow(pool: Pool, request: { kind: 'insert'; input: RowInsert } | { kind: 'update'; input: RowUpdate } | { kind: 'delete'; input: RowDelete }): Promise<Result<{ affectedRows: number }>> {
   return transaction(pool, async (tx) => {
     const table = request.input.table;
@@ -314,7 +324,7 @@ function mutateRow(pool: Pool, request: { kind: 'insert'; input: RowInsert } | {
         const updated = entries(update.values);
         const expected = entries(update.expectedValues);
         if (!updated.length || updated.length !== expected.length || updated.some(([name]) => !Object.hasOwn(update.expectedValues, name))) invalid('Each edited column requires its original value.');
-        for (const [name, value] of expected) predicates.push(quoteIdentifier(name) + ' IS NOT DISTINCT FROM ' + bind(value));
+        for (const [name, value] of expected) predicates.push(optimisticPredicate(column(definition, name), bind(value)));
         sql = 'UPDATE ' + tableName(table) + ' SET ' + updated.map(([name, value]) => quoteIdentifier(name) + ' = ' + bind(value)).join(', ') + ' WHERE ' + predicates.join(' AND ');
       } else {
         sql = 'DELETE FROM ' + tableName(table) + ' WHERE ' + predicates.join(' AND ');
