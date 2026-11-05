@@ -36,6 +36,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
           npm sbom --omit=dev --sbom-format=spdx --sbom-type=application | Set-Content -LiteralPath release/aetherexa-sbom.spdx.json -Encoding utf8NoBOM
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/generate-third-party-notices.cjs release/THIRD-PARTY-NOTICES.md
 
       - name: Install WiX Toolset 3.14.1
