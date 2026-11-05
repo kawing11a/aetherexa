@@ -51,6 +51,8 @@ export type TableChange =
   | { kind: 'add-column'; table: TableIdentifier; column: NewTableColumn }
   | { kind: 'rename-column'; table: TableIdentifier; from: string; to: string }
   | { kind: 'drop-column'; table: TableIdentifier; column: string };
+export type TableChangePreview = { planId: string; statements: string[]; destructive: boolean };
+export type ApplyTableChange = { planId: string; confirmDestructive: boolean };
 export type RowInsert = { table: TableIdentifier; values: Record<string, WireValue> };
 export type RowUpdate = { table: TableIdentifier; key: Record<string, WireValue>; expectedValues: Record<string, WireValue>; values: Record<string, WireValue> };
 export type RowDelete = { table: TableIdentifier; key: Record<string, WireValue> };
@@ -108,6 +110,14 @@ export interface DatabaseApi {
   listNamespaces(input: { sessionId: string }): Promise<Result<Namespace[]>>;
   listObjects(input: { sessionId: string; namespace: string }): Promise<Result<DatabaseObject[]>>;
   runSql(input: { sessionId: string; operationId: string; sql: string; limit: number }): Promise<Result<QueryPage>>;
+  describeTable(input: { sessionId: string; table: TableIdentifier }): Promise<Result<TableDefinition>>;
+  listColumnTypes(input: { sessionId: string }): Promise<Result<ColumnTypeOption[]>>;
+  readTablePage(input: { sessionId: string; request: TablePageRequest }): Promise<Result<TablePage>>;
+  previewTableChange(input: { sessionId: string; change: TableChange }): Promise<Result<TableChangePreview>>;
+  applyTableChange(input: { sessionId: string } & ApplyTableChange): Promise<Result<void>>;
+  insertRow(input: { sessionId: string; input: RowInsert }): Promise<Result<{ affectedRows: number }>>;
+  updateRow(input: { sessionId: string; input: RowUpdate }): Promise<Result<{ affectedRows: number }>>;
+  deleteRow(input: { sessionId: string; input: RowDelete }): Promise<Result<{ affectedRows: number }>>;
   findDocuments(input: { sessionId: string; query: MongoFindInput }): Promise<Result<DocumentPage>>;
   scanKeys(input: { sessionId: string; pattern: string; cursor: string; count: number }): Promise<Result<KeyPage>>;
   executeRedis(input: { sessionId: string; tokens: string[] }): Promise<Result<RedisReply>>;
