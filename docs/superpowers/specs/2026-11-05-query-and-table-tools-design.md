@@ -63,6 +63,8 @@ type TableChange =
 
 type TableChangePreview = { planId: string; statements: string[]; destructive: boolean };
 type ApplyTableChange = { planId: string; confirmDestructive: boolean };
+type ColumnTypeOption = { name: string; label: string; argumentCount: number; minArgument: number; maxArgument: number };
+type SqlTableChangePlan = { change: TableChange; statements: string[]; destructive: boolean; schemaFingerprint: string };
 
 type NewTableColumn = {
   name: string;
@@ -74,6 +76,17 @@ type NewTableColumn = {
 type RowInsert = { table: TableIdentifier; values: Record<string, WireValue> };
 type RowUpdate = { table: TableIdentifier; key: Record<string, WireValue>; expectedValues: Record<string, WireValue>; values: Record<string, WireValue> };
 type RowDelete = { table: TableIdentifier; key: Record<string, WireValue> };
+
+type SqlTableOperations = {
+  describeTable(table: TableIdentifier): Promise<Result<TableDefinition>>;
+  listColumnTypes(): Promise<Result<ColumnTypeOption[]>>;
+  readTablePage(request: TablePageRequest): Promise<Result<TablePage>>;
+  planTableChange(change: TableChange): Promise<Result<SqlTableChangePlan>>;
+  applyTableChange(plan: SqlTableChangePlan): Promise<Result<void>>;
+  insertRow(input: RowInsert): Promise<Result<{ affectedRows: number }>>;
+  updateRow(input: RowUpdate): Promise<Result<{ affectedRows: number }>>;
+  deleteRow(input: RowDelete): Promise<Result<{ affectedRows: number }>>;
+};
 ```
 
 Each adapter owns an allowlist of type names and argument rules. The renderer selects only types from that list. Defaults are typed literals or `CURRENT_TIMESTAMP`; free-form SQL expressions are out of scope. This keeps table definitions out of raw SQL concatenation.
@@ -86,7 +99,7 @@ The server returns one extra row internally to determine `hasNext`; it does not 
 
 ## Architecture
 
-Add table operations to `DatabaseApi`, `SqlSession`, the shared request schemas, and the database IPC handlers. Operations cover table metadata, a bounded page read, supported column types, a DDL preview and apply pair, and row insert/update/delete. `DatabaseSessionManager` continues to validate session ownership and serialize operations. Each relational adapter implements its engine's metadata queries, identifier quoting, pagination, DDL, and row operations.
+Add table operations to `DatabaseApi`, the shared request schemas, and the database IPC handlers. Group the adapter methods in an optional `SqlSession.tables` capability so connectors without the full table-tool set remain valid during rollout and on unsupported server versions. The capability provides table metadata, bounded page reads, supported column types, DDL preview/apply, and row insert/update/delete. The five supported relational adapters provide the complete capability. `DatabaseSessionManager` validates session ownership and serializes each operation.
 
 The renderer sends typed requests. It does not construct SQL for table paging or row changes. Adapters quote identifiers after validating them against metadata and bind filter and row values through driver parameters. Adapters return `TableDefinition` and bounded `TablePage` values, not driver objects. A DDL preview returns a plan ID that expires after five minutes and belongs to one session owner and exact change request. Apply consumes that plan once and requires destructive confirmation when the plan drops or renames a column.
 

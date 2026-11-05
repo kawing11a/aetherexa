@@ -1,10 +1,10 @@
 # SQL editor and table tools implementation plan
 
-> **For agentic workers:** The root owner implements shared contracts, IPC, and relational adapters. Delegate the renderer-only tasks in an isolated worktree after the contracts are committed. Keep each unit on branch `codex/query-table-tools` and do not add or run tests unless the user asks.
+> **For agentic workers:** The root owner implements shared contracts, IPC, and integrates work. Use a fresh worker in an isolated worktree for each independent task. Keep each unit on branch `codex/query-table-tools-impl` and do not add or run tests unless the user asks.
 
 **Goal:** Add SQL formatting and session query history, paged table browsing, table design, and primary-key row editing for Aetherexa's five relational engines.
 
-**Architecture:** Keep editor state in the renderer and database behavior in the main-process relational adapters. Add typed requests through `DatabaseApi`, preload IPC, validation, `DatabaseSessionManager`, and each `SqlSession`. Adapters own metadata queries, identifiers, pagination, DDL, and parameter binding.
+**Architecture:** Keep editor state in the renderer and database behavior in the main-process relational adapters. Add typed requests through `DatabaseApi`, preload IPC, validation, and `DatabaseSessionManager`. Group adapter operations under an optional `SqlSession.tables` capability; each of the five relational adapters supplies the complete capability.
 
 **Tech Stack:** Electron, React, TypeScript, Zod, MySQL2, PostgreSQL, SQL Server, Oracle, SQLite, `sql-formatter` 15.9.0.
 
@@ -26,13 +26,13 @@
 
 ## File map
 
-- `src/shared/database.ts` owns the serialized table request and result shapes shared by the renderer, preload, and main process.
+- `src/shared/database.ts` owns serialized table request and result shapes.
 - `src/shared/database-validation.ts` owns Zod bounds and request validation.
-- `src/main/connectors/contracts.ts` owns SQL-session operation signatures and the internal DDL plan type.
+- `src/main/connectors/contracts.ts` owns the optional `SqlSession.tables` capability and the internal DDL plan type.
 - `src/main/connectors/database-session-manager.ts` owns session/owner checks, operation serialization, and one-use DDL plans.
 - `src/main/ipc/database-handlers.ts` owns validated IPC handlers for table operations.
-- `src/preload/index.ts` exposes the typed table operations without exposing Electron internals.
-- `src/main/connectors/mysql/mysql-adapter.ts`, `postgres/postgres-adapter.ts`, `sqlserver/sqlserver-adapter.ts`, `oracle/oracle-adapter.ts`, and `sqlite/sqlite-adapter.ts` own each dialect's metadata and SQL.
+- `src/preload/index.ts` exposes typed table operations without exposing Electron internals.
+- Five relational adapter files own their engine's metadata queries, identifier quoting, pagination, DDL, and row operations.
 - `src/renderer/workspaces/sql/SqlWorkspace.tsx` owns query text, run state, session history, table selection, and error display.
 - `src/renderer/workspaces/sql/TableBrowser.tsx` owns table page, sort, and filter controls.
 - `src/renderer/workspaces/sql/TableDesignerDialog.tsx` owns create/alter forms, DDL preview, and destructive confirmation.
@@ -52,22 +52,23 @@
 - `TableIdentifier = { namespace: string; name: string }`
 - `TableColumn = { name: string; typeName: string; nullable: boolean; defaultExpression: string | null; primaryKeyOrder: number | null }`
 - `TableDefinition = { table: TableIdentifier; columns: TableColumn[] }`
-- `TableFilter` is a discriminated union for `equals`, `contains`, `is-null`, and `is-not-null`.
+- `TableFilter` is a union for `equals`, `contains`, `is-null`, and `is-not-null`.
 - `TablePageRequest = { table: TableIdentifier; offset: number; limit: number; sort?: { column: string; direction: 'asc' | 'desc' }; filters: TableFilter[] }`
 - `TablePage = { definition: TableDefinition; rows: WireValue[][]; offset: number; limit: number; hasNext: boolean }`
-- `ColumnTypeOption` gives a validated engine type name, display label, argument count, and argument bounds.
-- `NewTableColumn` carries a type name and numeric type arguments, nullability, and a typed default (`none`, `literal`, or `current-timestamp`).
-- `TableChange` supports `create`, `add-column`, `rename-column`, and `drop-column`.
-- `TableChangePreview = { planId: string; statements: string[]; destructive: boolean }` is the renderer-visible part of an internal one-use `SqlTableChangePlan`.
-- `RowInsert`, `RowUpdate`, and `RowDelete` use column maps and primary-key maps. `RowUpdate` also carries old edited values.
-- `SqlSession` adds `describeTable(table)`, `listColumnTypes()`, `readTablePage(request)`, `planTableChange(change)`, `applyTableChange(plan)`, `insertRow(input)`, `updateRow(input)`, and `deleteRow(input)`. Each returns `Promise<Result<T>>` and reads accept optional `AbortSignal` values.
+- `ColumnTypeOption = { name: string; label: string; argumentCount: number; minArgument: number; maxArgument: number }`
+- `TableChange` is a union for `create`, `add-column`, `rename-column`, and `drop-column`.
+- `NewTableColumn` carries a type name and numeric arguments, nullability, and a typed default (`none`, `literal`, or `current-timestamp`).
+- `RowUpdate` carries primary-key values, old edited values, and new values.
+- `SqlTableOperations` groups methods for metadata, pages, type options, DDL plans, and row mutations.
+- `SqlSession.tables?: SqlTableOperations` keeps unsupported server versions representable without making SQL sessions invalid.
 
 **Steps:**
 
 - [ ] Add the shared table types beside `QueryPage` and retain `WireValue` for cells and filter values.
-- [ ] Add an internal `SqlTableChangePlan` with exact statements, target table, destructive flag, and schema fingerprint.
-- [ ] Extend `SqlSession` with the matching asynchronous methods and optional abort signals for reads.
-- [ ] Run `npm run typecheck` to find current SQL session implementations that no longer satisfy the interface.
+- [ ] Define `SqlTableOperations` with `describeTable`, `listColumnTypes`, `readTablePage`, `planTableChange`, `applyTableChange`, `insertRow`, `updateRow`, and `deleteRow`.
+- [ ] Define the internal `SqlTableChangePlan` with exact statements, target table, destructive flag, and schema fingerprint.
+- [ ] Add `tables?: SqlTableOperations` to `SqlSession`; do not require existing adapters to implement it yet.
+- [ ] Run `npm run typecheck` to check the new types without changing current adapter behavior.
 
 ## Task 2: Wire table operations through IPC
 
@@ -88,81 +89,85 @@
 
 **Steps:**
 
-- [ ] Add strict Zod schemas for every table request. Enforce the global page, filter, offset, identifier, and collection-size limits.
+- [ ] Add strict Zod schemas for every request. Enforce global page, filter, offset, identifier, and collection-size limits.
 - [ ] Validate that `contains` carries a string, `equals` carries a non-null scalar, and null operators carry no value.
-- [ ] Add session-manager methods that reject non-SQL sessions and serialize each operation through the existing queue.
-- [ ] Store DDL plans in the owning session entry with the session owner, exact request, five-minute expiry, and one-use state.
+- [ ] Add session-manager methods that reject non-SQL sessions and return `unsupported-feature` when `session.tables` is absent.
+- [ ] Store DDL plans in the owning session entry with owner, exact request, five-minute expiry, and one-use state.
 - [ ] Reject apply when the plan is missing, expired, owned by another window, already consumed, or destructive without confirmation.
 - [ ] Register each IPC operation through the existing trusted-sender helper and expose it through preload.
-- [ ] Run `npm run typecheck` to check the new contract across main, preload, and renderer.
+- [ ] Run `npm run typecheck` to check the new API through main, preload, and renderer.
 
-## Task 3: Add metadata and type catalogs for all SQL engines
+## Task 3: Implement MySQL and MariaDB table operations
 
 **Files:**
 - Modify: `src/main/connectors/mysql/mysql-adapter.ts`
+
+**Steps:**
+
+- [ ] Implement metadata from `INFORMATION_SCHEMA.COLUMNS` and primary-key order from `INFORMATION_SCHEMA.KEY_COLUMN_USAGE`, parameterized by schema and table.
+- [ ] Return a fixed MySQL/MariaDB type catalog with numeric argument bounds.
+- [ ] Implement page reads with `LIMIT` and `OFFSET`, `?` placeholders, `LIKE ... ESCAPE` for `contains`, and primary-key tie-breaking.
+- [ ] Generate create/add/rename/drop DDL from validated identifiers and type catalog entries; return unsupported when the server version lacks a rename/drop form.
+- [ ] Implement row inserts, optimistic updates using `<=>`-equivalent null-safe predicates, and key-targeted deletes with driver parameters.
+- [ ] Return the complete `SqlSession.tables` capability and run `npm run typecheck`.
+
+## Task 4: Implement PostgreSQL table operations
+
+**Files:**
 - Modify: `src/main/connectors/postgres/postgres-adapter.ts`
+
+**Steps:**
+
+- [ ] Implement metadata from `information_schema.columns` and ordered primary keys from `table_constraints` and `key_column_usage`.
+- [ ] Return a fixed PostgreSQL type catalog with numeric argument bounds.
+- [ ] Implement page reads with `LIMIT` and `OFFSET`, numbered parameters, `LIKE ... ESCAPE` for `contains`, and primary-key tie-breaking.
+- [ ] Generate create/add/rename/drop statements with validated identifiers and typed defaults. Store a fingerprint of the live table definition in the DDL plan.
+- [ ] Implement insert/update/delete with bound values and `IS NOT DISTINCT FROM` predicates for stale-edit checks.
+- [ ] Return the complete `SqlSession.tables` capability and run `npm run typecheck`.
+
+## Task 5: Implement SQL Server table operations
+
+**Files:**
 - Modify: `src/main/connectors/sqlserver/sqlserver-adapter.ts`
+
+**Steps:**
+
+- [ ] Implement metadata from `sys.schemas`, `sys.tables`, `sys.columns`, `sys.types`, and ordered primary-key index columns.
+- [ ] Return a fixed SQL Server type catalog with numeric argument bounds.
+- [ ] Implement page reads with `OFFSET ... FETCH NEXT`, bound parameters, escaped `LIKE` patterns, and primary-key tie-breaking.
+- [ ] Generate create/add/rename/drop statements with bracket-quoted identifiers. Mark rename/drop plans destructive.
+- [ ] Implement insert/update/delete with bound values and null-safe expected-value predicates.
+- [ ] Return the complete `SqlSession.tables` capability and run `npm run typecheck`.
+
+## Task 6: Implement Oracle table operations
+
+**Files:**
 - Modify: `src/main/connectors/oracle/oracle-adapter.ts`
+
+**Steps:**
+
+- [ ] Implement metadata from `ALL_TAB_COLUMNS`, `ALL_CONSTRAINTS`, and `ALL_CONS_COLUMNS`, ordered by primary-key position.
+- [ ] Return a fixed Oracle type catalog with numeric argument bounds.
+- [ ] Implement page reads with Oracle offset/fetch syntax, named bind variables, escaped `LIKE` patterns, and primary-key tie-breaking.
+- [ ] Generate create/add/rename/drop statements with validated identifiers and typed defaults; return unsupported if the connected server version lacks offset/fetch.
+- [ ] Implement insert/update/delete with bound values and null-safe expected-value predicates.
+- [ ] Return the complete `SqlSession.tables` capability and run `npm run typecheck`.
+
+## Task 7: Implement SQLite table operations
+
+**Files:**
 - Modify: `src/main/connectors/sqlite/sqlite-adapter.ts`
 
 **Steps:**
 
-- [ ] Implement `describeTable` with engine metadata queries for column names, native type names, nullability, defaults, and ordered primary-key columns.
-- [ ] Implement `listColumnTypes` with a fixed adapter-owned allowlist and argument rules for each engine.
-- [ ] Use parameterized schema/table predicates for catalog queries. Quote only catalog-validated identifiers.
-- [ ] For SQLite, resolve the selected database name to `main` or `temp` and use `PRAGMA table_info` on that exact database.
-- [ ] Return a normalized unsupported-feature error when an engine cannot expose required primary-key metadata.
-- [ ] Run `npm run typecheck` after all five `SqlSession` implementations have the new methods.
+- [ ] Implement metadata with `PRAGMA table_info` for the selected `main` or `temp` database.
+- [ ] Return a fixed SQLite type catalog with numeric argument bounds.
+- [ ] Implement page reads with `LIMIT` and `OFFSET`, bound values, escaped `LIKE` patterns, and primary-key tie-breaking.
+- [ ] Generate create/add/rename/drop statements for SQLite. Read `sqlite_version()` and return unsupported if the version lacks a requested alter form.
+- [ ] Implement insert/update/delete with bound values and `IS` comparisons for stale-edit checks.
+- [ ] Return the complete `SqlSession.tables` capability and run `npm run typecheck`.
 
-## Task 4: Add bounded table paging, sorting, and filters
-
-**Files:**
-- Modify: all five relational adapter files from Task 3
-- Modify: `src/main/connectors/relational/row-normalizer.ts` only if a bounded page helper can serve every engine without weakening existing limits
-
-**Steps:**
-
-- [ ] Build each SELECT from the validated `TableIdentifier`, metadata-checked sort column, and metadata-checked filter columns.
-- [ ] Bind every filter value through the driver's parameter API. Escape wildcard characters for `contains` before binding.
-- [ ] Implement engine-specific pagination for MySQL/MariaDB, PostgreSQL, SQL Server, Oracle, and SQLite.
-- [ ] Add the primary key as a deterministic tie-breaker when the user sort omits it. Keep reads available without a key and return the existing warning state to the UI.
-- [ ] Fetch at most `limit + 1` rows, enforce cell and page-byte limits, and return `hasNext` without returning the extra row.
-- [ ] Reject `contains` for non-text columns and normalize engine errors without including filter values.
-- [ ] Run `npm run typecheck` after the five adapter implementations agree on `TablePage`.
-
-## Task 5: Add table creation, column changes, and DDL previews
-
-**Files:**
-- Modify: all five relational adapter files from Task 3
-- Modify: `src/main/connectors/database-session-manager.ts`
-
-**Steps:**
-
-- [ ] Generate `CREATE TABLE` statements from validated type catalog entries, typed defaults, nullability, and primary-key column names.
-- [ ] Generate `ALTER TABLE` statements for add, rename, and drop column operations in each dialect.
-- [ ] Mark rename and drop as destructive. Do not support existing type, nullability, default, or primary-key changes in this release.
-- [ ] Capture the current table-definition fingerprint in each plan and recheck it before apply.
-- [ ] Return the generated statements to the renderer as a preview. Store the executable plan in the owning session and consume it once after confirmation.
-- [ ] Gate unsupported engine or server-version operations with a normalized error; do not silently fall back to a table rebuild.
-- [ ] Run `npm run typecheck` after DDL plan signatures and session storage match.
-
-## Task 6: Add primary-key row mutations
-
-**Files:**
-- Modify: all five relational adapter files from Task 3
-- Modify: `src/main/connectors/database-session-manager.ts`
-
-**Steps:**
-
-- [ ] Build `INSERT` from metadata-validated columns and bound values; omit generated columns not present in the input.
-- [ ] Build `UPDATE` from primary-key predicates, edited values, and null-safe `expectedValues` predicates.
-- [ ] Build `DELETE` from primary-key predicates only. Leave confirmation to the renderer, where the selected row is visible.
-- [ ] Validate composite keys in metadata order and reject writes when the supplied key does not match every primary-key column.
-- [ ] Require one affected row for update/delete. Return a conflict when expected old values no longer match.
-- [ ] Never retry writes. If completion is unknown, preserve the existing reconnect/reload behavior and ask the user to inspect the database before retrying.
-- [ ] Run `npm run typecheck` after all driver result shapes map to `{ affectedRows }`.
-
-## Task 7: Add SQL formatting and session history
+## Task 8: Add SQL formatting and session history
 
 **Files:**
 - Modify: `package.json`
@@ -176,11 +181,11 @@
 - [ ] Record the package license, formatter purpose, and supported dialects in `docs/dependencies.md`.
 - [ ] Select `mysql`, `postgresql`, `transactsql`, `plsql`, or `sqlite` from the active profile engine.
 - [ ] Add a Format action that replaces SQL only after formatting succeeds and leaves the original text intact on errors.
-- [ ] Add a session-only recent history list capped at 50 statements. Record each Run action newest-first, add a clear-history action, and reopen a selected statement in the editor.
-- [ ] Confirm editor state and history clear when the workspace component unmounts.
+- [ ] Add a session-only recent history list capped at 50 statements. Record Run actions newest-first and add clear/reopen controls.
+- [ ] Confirm editor text and history clear when the workspace component unmounts.
 - [ ] Run `npm run typecheck` after the formatter module is imported from the renderer bundle.
 
-## Task 8: Add the table browser and designer UI
+## Task 9: Add the table browser and designer UI
 
 **Files:**
 - Modify: `src/renderer/workspaces/sql/SqlWorkspace.tsx`
@@ -192,16 +197,16 @@
 **Steps:**
 
 - [ ] Add an Open Table action for table objects. Keep views selectable only in the SQL editor.
-- [ ] Add a table browser with page controls, column sort, equality/contains/null filters, and a visible page limit.
-- [ ] Reset to offset zero when the selected table, sort, or filters change. Disable row writes when no primary key is present.
-- [ ] Add create-table and alter-column forms that use `listColumnTypes`; do not accept free-form SQL type or default expressions.
+- [ ] Add table page controls, column sort, equality/contains/null filters, and a visible page limit.
+- [ ] Reset the offset when the selected table, sort, or filters change. Disable row writes when no primary key is present.
+- [ ] Add create-table and alter-column forms that use `listColumnTypes`; reject free-form SQL type or default expressions.
 - [ ] Show DDL statements before apply. Require a separate confirmation for a plan that renames or drops a column.
 - [ ] Render row insert/edit forms. Confirm deletes and send primary-key maps plus expected old edited values.
 - [ ] Show stale row conflicts and unknown mutation completion as reload-required states. Do not resubmit a mutation automatically.
-- [ ] Add focused styles to `database-workspaces.css` and preserve the current connection, query, result, and CSV workflows.
+- [ ] Add focused styles and preserve the current connection, query, result, and CSV workflows.
 - [ ] Run `npm run typecheck` after all renderer components consume the typed `DatabaseApi` methods.
 
-## Task 9: Document the delivered SQL workflows
+## Task 10: Document the delivered SQL workflows
 
 **Files:**
 - Modify: `docs/user-guide.md`
@@ -217,6 +222,6 @@
 ## Implementation checkpoints
 
 1. Complete Tasks 1-2 and typecheck before changing adapters.
-2. Complete Tasks 3-4 and typecheck before adding schema writes.
-3. Complete Tasks 5-6 and typecheck before connecting the UI.
-4. Complete Tasks 7-9, then review the full diff and build once.
+2. Complete Tasks 3-5 and typecheck before adding later adapters.
+3. Complete Tasks 6-7 and typecheck before connecting the UI.
+4. Complete Tasks 8-10, then review the full diff and build once.
