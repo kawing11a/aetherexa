@@ -13,11 +13,15 @@ export class SqlServerAdapter implements DatabaseAdapter {
   readonly engine = 'sqlserver' as const;
   async connect(profile: DatabaseProfile, secrets: SecretBundle): Promise<Result<DatabaseSession>> {
     try {
-          const pool = await new sql.ConnectionPool({ server: requiredHost(profile), port: requiredPort(profile, 1433), user: requiredUsername(profile), password: password(secrets), database: optionalDatabase(profile), connectionTimeout: 10_000, requestTimeout: 30_000, options: { encrypt: tlsEnabled(profile), trustServerCertificate: false, appName: 'Aetherexa' }, pool: { max: 2, min: 0, idleTimeoutMillis: 30_000 } }).connect();
+      const config: sql.config = { server: requiredHost(profile), port: requiredPort(profile, 1433), user: requiredUsername(profile), password: password(secrets), database: optionalDatabase(profile), connectionTimeout: 10_000, requestTimeout: 30_000, options: { encrypt: tlsEnabled(profile), trustServerCertificate: false, appName: 'Aetherexa' }, pool: { max: 2, min: 0, idleTimeoutMillis: 30_000 } };
+      const pool = await new sql.ConnectionPool(config).connect();
+      let tablePool: sql.ConnectionPool;
+      try { tablePool = await new sql.ConnectionPool({ ...config, pool: { max: 1, min: 0, idleTimeoutMillis: 30_000 } }).connect(); }
+      catch (error) { await pool.close().catch(() => undefined); throw error; }
       const session: SqlSession = {
         kind: 'sql', engine: this.engine, capabilities,
-        tables: createTableOperations(pool),
-        async close() { await pool.close(); },
+        tables: createTableOperations(tablePool),
+        async close() { await Promise.all([pool.close(), tablePool.close()]); },
         async listNamespaces() { return capture(async () => { const result = await pool.request().query('SELECT s.name AS name FROM sys.schemas s ORDER BY s.name OFFSET 0 ROWS FETCH NEXT 10000 ROWS ONLY'); return result.recordset.map((row) => ({ name: String(row.name), kind: 'schema' as const })); }); },
         async listObjects(namespace) { return capture(async () => { const result = await pool.request().input('schema', sql.NVarChar(128), namespace).query("SELECT t.name AS name, CASE WHEN t.type = 'V' THEN 'view' ELSE 'table' END AS kind FROM sys.objects t JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE s.name=@schema AND t.type IN ('U','V') ORDER BY t.name OFFSET 0 ROWS FETCH NEXT 10000 ROWS ONLY"); return result.recordset.map((row) => ({ name: String(row.name), kind: row.kind === 'view' ? 'view' as const : 'table' as const })); }); },
         async runSql(queryText, limit, signal) {
@@ -45,7 +49,8 @@ export class SqlServerAdapter implements DatabaseAdapter {
 }
 
 type ServerColumn = TableColumn & { baseType: string; identity: boolean; computed: boolean; maxLength: number; precision: number; scale: number };
-type ServerTable = { definition: TableDefinition; columns: ServerColumn[] };
+type ServerTable = { definition: TableDefinition; columns: ServerColumn[]; objectId: number; schemaId: number; created: string; modified: string };
+type SqlExecutor = sql.ConnectionPool | sql.Transaction;
 const TYPE_OPTIONS: ColumnTypeOption[] = [
   { name: 'int', label: 'INT', argumentCount: 0, minArgument: 0, maxArgument: 0 },
   { name: 'bigint', label: 'BIGINT', argumentCount: 0, minArgument: 0, maxArgument: 0 },
@@ -80,10 +85,10 @@ function displayType(name: string, base: string, maxLength: number, precision: n
 function fingerprint(table: ServerTable | null): string {
   return createHash('sha256').update(JSON.stringify(table)).digest('hex');
 }
-async function describe(pool: sql.ConnectionPool, table: TableIdentifier): Promise<ServerTable | null> {
+async function describe(pool: SqlExecutor, table: TableIdentifier): Promise<ServerTable | null> {
   reference(table);
   const result = await pool.request().input('schema', sql.NVarChar(128), table.namespace).input('table', sql.NVarChar(128), table.name).query(`
-    SELECT c.name, ty.name AS type_name, COALESCE(bt.name, ty.name) AS base_type, c.max_length, c.precision, c.scale,
+    SELECT t.object_id, s.schema_id, t.create_date, t.modify_date, c.name, ty.name AS type_name, COALESCE(bt.name, ty.name) AS base_type, c.max_length, c.precision, c.scale,
            c.is_nullable, c.is_identity, c.is_computed, dc.definition AS default_expression, pk.key_ordinal
     FROM sys.tables t JOIN sys.schemas s ON s.schema_id = t.schema_id
     JOIN sys.columns c ON c.object_id = t.object_id
@@ -101,14 +106,14 @@ async function describe(pool: sql.ConnectionPool, table: TableIdentifier): Promi
     primaryKeyOrder: row.key_ordinal == null ? null : Number(row.key_ordinal), identity: Boolean(row.is_identity),
     computed: Boolean(row.is_computed), maxLength: Number(row.max_length), precision: Number(row.precision), scale: Number(row.scale),
   }));
-  return { definition: { table, columns: columns.map(({ name, typeName, nullable, defaultExpression, primaryKeyOrder }) => ({ name, typeName, nullable, defaultExpression, primaryKeyOrder })) }, columns };
+  return { definition: { table, columns: columns.map(({ name, typeName, nullable, defaultExpression, primaryKeyOrder }) => ({ name, typeName, nullable, defaultExpression, primaryKeyOrder })) }, columns, objectId: Number(result.recordset[0].object_id), schemaId: Number(result.recordset[0].schema_id), created: new Date(result.recordset[0].create_date).toISOString(), modified: new Date(result.recordset[0].modify_date).toISOString() };
 }
-async function requireSchema(pool: sql.ConnectionPool, name: string): Promise<void> {
+async function requireSchema(pool: SqlExecutor, name: string): Promise<void> {
   quote(name);
   const result = await pool.request().input('schema', sql.NVarChar(128), name).query('SELECT 1 AS found FROM sys.schemas WHERE name = @schema');
   if (!result.recordset.length) failure('The schema no longer exists.', 'schema-not-found');
 }
-async function requireTable(pool: sql.ConnectionPool, table: TableIdentifier): Promise<ServerTable> {
+async function requireTable(pool: SqlExecutor, table: TableIdentifier): Promise<ServerTable> {
   return await describe(pool, table) ?? failure('The table no longer exists.', 'table-not-found');
 }
 function column(meta: ServerTable, name: string): ServerColumn {
@@ -129,7 +134,10 @@ function bind(request: sql.Request, name: string, value: WireValue, info: Server
   if (type in intRanges && typeof value === 'number' && Number.isInteger(value) && value >= intRanges[type][0] && value <= intRanges[type][1]) request.input(name, sql.Int, value);
   else if (type === 'bit' && typeof value === 'boolean') request.input(name, sql.Bit, value);
   else if ((type === 'float' || type === 'real') && typeof value === 'number' && Number.isFinite(value)) request.input(name, type === 'real' ? sql.Real : sql.Float, value);
-  else if (textTypes.has(type) && typeof value === 'string') request.input(name, sql.NVarChar(sql.MAX), value);
+  else if (textTypes.has(type) && typeof value === 'string') {
+    if ((type === 'char' || type === 'varchar') && /[^\x00-\x7f]/.test(value)) return failure('Non-ASCII text cannot be safely written or compared in this column.', 'unsupported-feature');
+    request.input(name, type === 'char' || type === 'varchar' ? sql.VarChar(sql.MAX) : sql.NVarChar(sql.MAX), value);
+  }
   else if ((type === 'binary' || type === 'varbinary') && value instanceof Uint8Array) request.input(name, sql.VarBinary(sql.MAX), Buffer.from(value));
   else return failure('This value or column type cannot be safely edited or filtered.', 'unsupported-feature');
   return '@' + name;
@@ -141,11 +149,13 @@ function writable(meta: ServerTable, values: Record<string, WireValue>): ServerC
     return info;
   });
 }
-function rowPredicate(request: sql.Request, entries: ServerColumn[], values: Record<string, WireValue>, prefix: string): string {
+function rowPredicate(request: sql.Request, entries: ServerColumn[], values: Record<string, WireValue>, prefix: string, exact = false): string {
   return entries.map((info, index) => {
     const value = values[info.name];
     if (value === null) return quote(info.name) + ' IS NULL';
-    return quote(info.name) + ' = ' + bind(request, prefix + index, value, info);
+    const parameter = bind(request, prefix + index, value, info);
+    if (exact && textTypes.has(info.baseType)) return 'CONVERT(VARBINARY(MAX), ' + quote(info.name) + ') = CONVERT(VARBINARY(MAX), ' + parameter + ')';
+    return quote(info.name) + ' = ' + parameter;
   }).join(' AND ');
 }
 function ddlColumn(input: NewTableColumn): string {
@@ -160,7 +170,10 @@ function ddlColumn(input: NewTableColumn): string {
   } else if (input.default.kind === 'literal') {
     const value = input.default.value;
     if (value === null) defaultSql = ' DEFAULT NULL';
-    else if (typeof value === 'string' && ['nvarchar', 'varchar', 'date', 'datetime2'].includes(type.name)) defaultSql = ' DEFAULT ' + literalString(value);
+    else if (typeof value === 'string' && ['nvarchar', 'varchar', 'date', 'datetime2'].includes(type.name)) {
+      if (type.name === 'varchar' && /[^\x00-\x7f]/.test(value)) return failure('Non-ASCII defaults are unsupported for VARCHAR.', 'unsupported-feature');
+      defaultSql = ' DEFAULT ' + literalString(value);
+    }
     else if (typeof value === 'boolean' && type.name === 'bit') defaultSql = ' DEFAULT ' + (value ? '1' : '0');
     else if (typeof value === 'number' && Number.isFinite(value) && ['int', 'float'].includes(type.name) && (type.name !== 'int' || Number.isInteger(value) && value >= -2147483648 && value <= 2147483647)) defaultSql = ' DEFAULT ' + String(value);
     else return failure('This default value cannot be safely represented for the selected type.', 'unsupported-feature');
@@ -193,14 +206,32 @@ function unknownMutation(error: unknown): never {
   if (code !== 'EREQUEST') return failure('The write may have completed. Reload the table before retrying.', 'completion-unknown');
   throw error;
 }
-async function mutation(request: sql.Request, text: string): Promise<{ affectedRows: number }> {
+async function withWriteTransaction<T>(pool: sql.ConnectionPool, work: (transaction: sql.Transaction, dispatched: () => void) => Promise<T>): Promise<T> {
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+  let sent = false;
+  let value: T;
+  try { value = await work(transaction, () => { sent = true; }); }
+  catch (error) {
+    try { await transaction.rollback(); } catch { if (sent) return failure('The write result is unknown. Reload the table before retrying.', 'completion-unknown'); }
+    throw error;
+  }
+  try { await transaction.commit(); }
+  catch { await transaction.rollback().catch(() => undefined); return failure('The write may have completed. Reload the table before retrying.', 'completion-unknown'); }
+  return value;
+}
+async function lockTable(transaction: sql.Transaction, table: TableIdentifier): Promise<void> {
+  await transaction.request().query('SELECT TOP (1) 1 AS locked FROM ' + reference(table) + ' WITH (TABLOCKX, HOLDLOCK)');
+}
+async function mutation(request: sql.Request, text: string, dispatched: () => void): Promise<{ affectedRows: number }> {
   let result: sql.IResult<unknown>;
+  dispatched();
   try { result = await request.query(text + '; SELECT @@ROWCOUNT AS affectedRows'); } catch (error) { return unknownMutation(error); }
   const sets = result.recordsets as Array<Array<{ affectedRows?: unknown }>>;
   const affectedRows = Number(sets.at(-1)?.[0]?.affectedRows);
   if (!Number.isInteger(affectedRows) || affectedRows < 0) return failure('The write result is unknown. Reload the table before retrying.', 'completion-unknown');
   if (affectedRows === 0) return failure('The row changed or no longer exists. Reload the table.', 'stale-row');
-  if (affectedRows !== 1) return failure('The write affected more than one row. Reload the table.', 'completion-unknown');
+  if (affectedRows !== 1) return failure('The write did not affect exactly one row.', 'row-count-mismatch');
   return { affectedRows };
 }
 function createTableOperations(pool: sql.ConnectionPool): SqlTableOperations {
@@ -235,50 +266,63 @@ function createTableOperations(pool: sql.ConnectionPool): SqlTableOperations {
       for (const key of primary(meta)) if (key.name !== input.sort?.column) order.push(quote(key.name) + ' ASC');
       if (!order.length) order.push('(SELECT NULL)');
       request.input('offset', sql.Int, input.offset).input('take', sql.Int, input.limit + 1);
-      const query = 'SELECT ' + meta.columns.map((item) => quote(item.name)).join(', ') + ' FROM ' + reference(input.table) + (predicates.length ? ' WHERE ' + predicates.join(' AND ') : '') + ' ORDER BY ' + order.join(', ') + ' OFFSET @offset ROWS FETCH NEXT @take ROWS ONLY';
-      const result = await request.query(query);
+      const query = 'SELECT ' + meta.columns.map((item, index) => quote(item.name) + ' AS ' + quote('c' + index)).join(', ') + ' FROM ' + reference(input.table) + (predicates.length ? ' WHERE ' + predicates.join(' AND ') : '') + ' ORDER BY ' + order.join(', ') + ' OFFSET @offset ROWS FETCH NEXT @take ROWS ONLY';
       const builder = new BoundedPageBuilder(meta.definition.columns.map((item) => ({ name: item.name, typeHint: item.typeName })), input.limit);
-      for (const row of result.recordset.slice(0, input.limit)) {
-        if (!builder.push(meta.columns.map((info) => row[info.name]))) return failure('The table page exceeds the result size limit. Reduce the page size.', 'result-limit');
-      }
-      return { definition: meta.definition, rows: builder.finish().rows, offset: input.offset, limit: input.limit, hasNext: result.recordset.length > input.limit };
+      let rowCount = 0; let exceeded = false;
+      request.stream = true;
+      await new Promise<void>((resolve, reject) => {
+        request.on('row', (row) => {
+          rowCount++;
+          if (rowCount <= input.limit && !exceeded && !builder.push(meta.columns.map((_, index) => row['c' + index]))) exceeded = true;
+        });
+        request.on('error', reject);
+        request.on('done', () => resolve());
+        request.query(query);
+      });
+      if (exceeded) return failure('The table page exceeds the result size limit. Reduce the page size.', 'result-limit');
+      return { definition: meta.definition, rows: builder.finish().rows, offset: input.offset, limit: input.limit, hasNext: rowCount > input.limit };
     }),
     planTableChange: (change) => capture(async () => {
       const meta = await describe(pool, change.table);
       if (change.kind === 'create') await requireSchema(pool, change.table.namespace);
       return { change, statements: [statement(change, meta)], destructive: change.kind === 'rename-column' || change.kind === 'drop-column', schemaFingerprint: fingerprint(meta) };
     }),
-    applyTableChange: (plan: SqlTableChangePlan) => capture(async () => {
-      const meta = await describe(pool, plan.change.table);
-      if (plan.change.kind === 'create') await requireSchema(pool, plan.change.table.namespace);
+    applyTableChange: (plan: SqlTableChangePlan) => capture(async () => withWriteTransaction(pool, async (transaction, dispatched) => {
+      if (plan.change.kind !== 'create') await lockTable(transaction, plan.change.table);
+      const meta = await describe(transaction, plan.change.table);
+      if (plan.change.kind === 'create') await requireSchema(transaction, plan.change.table.namespace);
       if (fingerprint(meta) !== plan.schemaFingerprint) return failure('The table definition changed. Preview the change again.', 'stale-table-plan');
       const current = statement(plan.change, meta);
       if (plan.statements.length !== 1 || plan.statements[0] !== current) return failure('The table change plan is invalid.');
-      try { await pool.request().query(current); } catch (error) { return unknownMutation(error); }
-    }),
-    insertRow: (input: RowInsert) => capture(async () => {
-      const meta = await requireTable(pool, input.table);
+      dispatched();
+      try { await transaction.request().query(current); } catch (error) { return unknownMutation(error); }
+    })),
+    insertRow: (input: RowInsert) => capture(async () => withWriteTransaction(pool, async (transaction, dispatched) => {
+      await lockTable(transaction, input.table);
+      const meta = await requireTable(transaction, input.table);
       if (!primary(meta).length) return failure('This table has no primary key and cannot be edited.', 'read-only-table');
       const entries = writable(meta, input.values);
-      const request = pool.request();
+      const request = transaction.request();
       const text = entries.length ? 'INSERT INTO ' + reference(input.table) + ' (' + entries.map((item) => quote(item.name)).join(', ') + ') VALUES (' + entries.map((item, index) => bind(request, 'value' + index, input.values[item.name], item)).join(', ') + ')' : 'INSERT INTO ' + reference(input.table) + ' DEFAULT VALUES';
-      return mutation(request, text);
-    }),
-    updateRow: (input: RowUpdate) => capture(async () => {
-      const meta = await requireTable(pool, input.table);
+      return mutation(request, text, dispatched);
+    })),
+    updateRow: (input: RowUpdate) => capture(async () => withWriteTransaction(pool, async (transaction, dispatched) => {
+      await lockTable(transaction, input.table);
+      const meta = await requireTable(transaction, input.table);
       const keys = checkKey(meta, input.key);
       const entries = writable(meta, input.values);
       if (!entries.length || entries.length !== Object.keys(input.expectedValues).length || entries.some((item) => !Object.hasOwn(input.expectedValues, item.name))) return failure('Each edited column requires its original value.');
-      const request = pool.request();
+      const request = transaction.request();
       const assignments = entries.map((item, index) => quote(item.name) + ' = ' + bind(request, 'new' + index, input.values[item.name], item)).join(', ');
-      const where = rowPredicate(request, keys, input.key, 'key') + ' AND ' + rowPredicate(request, entries, input.expectedValues, 'old');
-      return mutation(request, 'UPDATE ' + reference(input.table) + ' SET ' + assignments + ' WHERE ' + where);
-    }),
-    deleteRow: (input: RowDelete) => capture(async () => {
-      const meta = await requireTable(pool, input.table);
+      const where = rowPredicate(request, keys, input.key, 'key') + ' AND ' + rowPredicate(request, entries, input.expectedValues, 'old', true);
+      return mutation(request, 'UPDATE ' + reference(input.table) + ' SET ' + assignments + ' WHERE ' + where, dispatched);
+    })),
+    deleteRow: (input: RowDelete) => capture(async () => withWriteTransaction(pool, async (transaction, dispatched) => {
+      await lockTable(transaction, input.table);
+      const meta = await requireTable(transaction, input.table);
       const keys = checkKey(meta, input.key);
-      const request = pool.request();
-      return mutation(request, 'DELETE FROM ' + reference(input.table) + ' WHERE ' + rowPredicate(request, keys, input.key, 'key'));
-    }),
+      const request = transaction.request();
+      return mutation(request, 'DELETE FROM ' + reference(input.table) + ' WHERE ' + rowPredicate(request, keys, input.key, 'key'), dispatched);
+    })),
   };
 }
