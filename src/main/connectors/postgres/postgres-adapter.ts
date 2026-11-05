@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Pool } from 'pg';
-import type { PoolClient } from 'pg';
+import type { PoolClient, PoolConfig } from 'pg';
 import Cursor from 'pg-cursor';
 import type { DatabaseProfile, SecretBundle } from '@shared/profiles';
 import type { Result } from '@shared/contracts';
@@ -16,11 +16,14 @@ export class PostgresAdapter implements DatabaseAdapter {
   readonly engine = 'postgres' as const;
   async connect(profile: DatabaseProfile, secrets: SecretBundle): Promise<Result<DatabaseSession>> {
     try {
-          const pool = new Pool({ host: requiredHost(profile), port: requiredPort(profile, 5432), user: requiredUsername(profile), password: password(secrets), database: optionalDatabase(profile) ?? 'postgres', ssl: tlsEnabled(profile) ? { rejectUnauthorized: true } : false, connectionTimeoutMillis: 10_000, statement_timeout: 30_000, application_name: 'Aetherexa' });
+      const connectionOptions: PoolConfig = { host: requiredHost(profile), port: requiredPort(profile, 5432), user: requiredUsername(profile), password: password(secrets), database: optionalDatabase(profile) ?? 'postgres', ssl: tlsEnabled(profile) ? { rejectUnauthorized: true } : false, connectionTimeoutMillis: 10_000, statement_timeout: 30_000, application_name: 'Aetherexa' };
+      const pool = new Pool(connectionOptions);
       const client = await pool.connect(); client.release();
+      // Raw SQL clients may retain user-owned transactions between editor requests.
+      const tablePool = new Pool({ ...connectionOptions, max: 1 });
       const session: SqlSession = {
-        kind: 'sql', engine: this.engine, capabilities, tables: tableOperations(pool),
-        async close() { await pool.end(); },
+        kind: 'sql', engine: this.engine, capabilities, tables: tableOperations(tablePool),
+        async close() { await Promise.all([pool.end(), tablePool.end()]); },
         async listNamespaces() { return capture(async () => { const result = await pool.query("SELECT schema_name AS name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'pg_catalog') ORDER BY schema_name LIMIT 10000"); return result.rows.map((row) => ({ name: String(row.name), kind: 'schema' as const })); }); },
         async listObjects(namespace) { return capture(async () => { const result = await pool.query('SELECT table_name AS name, table_type AS type FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name LIMIT 10000', [namespace]); return result.rows.map((row) => ({ name: String(row.name), kind: String(row.type).toUpperCase() === 'VIEW' ? 'view' as const : 'table' as const })); }); },
         async runSql(sql, limit, signal) {
