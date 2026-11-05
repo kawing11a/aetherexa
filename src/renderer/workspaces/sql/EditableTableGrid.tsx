@@ -3,7 +3,7 @@ import type { TableColumn, TablePage, WireValue } from '@shared/database';
 
 type ValueKind = 'text' | 'number' | 'boolean' | 'null';
 type Draft = { enabled: boolean; kind: ValueKind; value: string };
-type Editor = { row: WireValue[] | null; drafts: Draft[] };
+type Editor = { row: WireValue[] | null; rowIndex: number | null; drafts: Draft[] };
 
 type Props = {
   sessionId: string;
@@ -51,9 +51,9 @@ export function EditableTableGrid({ sessionId, page, disabled, onBusyChange, onC
   const columns = page.definition.columns;
   const hasKey = columns.some((column) => column.primaryKeyOrder !== null);
   const setPending = (next: boolean) => { setBusy(next); onBusyChange(next); };
-  function start(row: WireValue[] | null) {
+  function start(row: WireValue[] | null, rowIndex: number | null = null) {
     setError('');
-    setEditor({ row, drafts: columns.map((_, index) => makeDraft(row?.[index] ?? null, false)) });
+    setEditor({ row, rowIndex, drafts: columns.map((_, index) => makeDraft(row?.[index] ?? null, row !== null && scalar(row[index]))) });
   }
   function changeDraft(index: number, patch: Partial<Draft>) {
     setEditor((current) => current && ({ ...current, drafts: current.drafts.map((item, i) => i === index ? { ...item, ...patch } : item) }));
@@ -106,8 +106,23 @@ export function EditableTableGrid({ sessionId, page, disabled, onBusyChange, onC
     <div className="data-toolbar"><span>{hasKey ? 'Rows' : 'Read-only: this table has no primary key.'}</span><button className="button button-secondary button-small" disabled={!hasKey || disabled || busy} onClick={() => start(null)}>Insert row</button></div>
     {error && <div className="workspace-error" role="alert">{error}</div>}
     <div className="results-grid-wrap"><table className="results-grid table-browser-grid"><thead><tr><th>Row</th>{columns.map((item) => <th key={item.name}><span>{item.name}{item.primaryKeyOrder !== null ? ' · PK ' + item.primaryKeyOrder : ''}</span><small>{item.typeName}{item.nullable ? ' · nullable' : ' · not null'}{item.defaultExpression !== null ? ' · default ' + item.defaultExpression : ''}</small></th>)}<th>Actions</th></tr></thead>
-      <tbody>{page.rows.map((row, index) => <tr key={index}><td>{page.offset + index + 1}</td>{columns.map((item, i) => <td key={item.name} title={display(row[i])}>{display(row[i])}</td>)}<td><button className="button button-subtle button-small" disabled={!hasKey || !keyFor(columns, row) || disabled || busy} onClick={() => start(row)}>Edit</button><button className="button button-subtle button-small" disabled={!hasKey || !keyFor(columns, row) || disabled || busy} onClick={() => void remove(row)}>Delete</button></td></tr>)}</tbody></table>{page.rows.length === 0 && <div className="results-note">No rows on this page. Adjust filters or insert a row.</div>}</div>
-    {editor && <div className="table-dialog-backdrop"><section ref={dialog} tabIndex={-1} onKeyDown={(event) => { if (event.key === 'Escape' && !busy) setEditor(null); }} className="table-dialog" role="dialog" aria-modal="true" aria-labelledby="row-editor-title"><h2 id="row-editor-title">{editor.row ? 'Edit row' : 'Insert row'}</h2><p>Select the columns to {editor.row ? 'change' : 'provide'}. Other columns {editor.row ? 'remain unchanged' : 'use database defaults'}.</p>
+      <tbody>{page.rows.map((row, index) => {
+        const editing = editor?.rowIndex === index && editor.row !== null;
+        return <tr className={editing ? 'row-editing' : ''} key={index} onKeyDown={(event) => { if (editing && event.key === 'Escape' && !busy) setEditor(null); }}>
+          <td>{page.offset + index + 1}</td>
+          {columns.map((item, i) => {
+            const original = row[i]; const supported = scalar(original);
+            if (!editing || !supported) return <td key={item.name} title={display(original)}>{display(original)}</td>;
+            const draft = editor.drafts[i];
+            return <td key={item.name} title={item.name}><div className="table-inline-editor">
+              <select aria-label={`${item.name} type`} value={draft.kind} disabled={busy} onChange={(event) => changeDraft(i, { enabled: true, kind: event.target.value as ValueKind, value: event.target.value === 'boolean' ? 'true' : '' })}><option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option><option value="null">NULL</option></select>
+              {draft.kind === 'boolean' ? <select aria-label={`${item.name} value`} value={draft.value} disabled={busy} onChange={(event) => changeDraft(i, { enabled: true, value: event.target.value })}><option value="true">true</option><option value="false">false</option></select> : draft.kind === 'null' ? <span>NULL</span> : <input aria-label={`Edit ${item.name}`} autoFocus={i === 0} value={draft.value} disabled={busy} onChange={(event) => changeDraft(i, { enabled: true, value: event.target.value })} />}
+            </div></td>;
+          })}
+          <td>{editing ? <div className="table-inline-actions"><button className="button button-subtle button-small" disabled={busy} onClick={() => { setEditor(null); setError(''); }}>× Cancel</button><button className="button button-small table-inline-commit" title="Confirm changes and commit this row" disabled={busy || disabled} onClick={() => void save()}>{busy ? 'Committing…' : '✓ Confirm & commit'}</button></div> : <><button className="button button-subtle button-small" disabled={!hasKey || !keyFor(columns, row) || disabled || busy || editor !== null} onClick={() => start(row, index)}>Edit</button><button className="button button-subtle button-small" disabled={!hasKey || !keyFor(columns, row) || disabled || busy || editor !== null} onClick={() => void remove(row)}>Delete</button></>}</td>
+        </tr>;
+      })}</tbody></table>{page.rows.length === 0 && <div className="results-note">No rows on this page. Adjust filters or insert a row.</div>}</div>
+    {editor?.row === null && <div className="table-dialog-backdrop"><section ref={dialog} tabIndex={-1} onKeyDown={(event) => { if (event.key === 'Escape' && !busy) setEditor(null); }} className="table-dialog" role="dialog" aria-modal="true" aria-labelledby="row-editor-title"><h2 id="row-editor-title">Insert row</h2><p>Select the columns to provide. Other columns use database defaults.</p>
       <div className="table-fields">{columns.map((item, index) => {
         const draft = editor.drafts[index]; const supported = !editor.row || scalar(editor.row[index]);
         return <div className="table-field" key={item.name}><label><input type="checkbox" checked={draft.enabled} disabled={!supported || busy} onChange={(event) => changeDraft(index, { enabled: event.target.checked })} /> {item.name} <small>{item.typeName}</small></label>

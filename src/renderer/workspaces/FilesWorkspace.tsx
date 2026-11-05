@@ -29,7 +29,7 @@ export function FilesWorkspace({ profile }: { profile: FileTransferProfile }) {
     if (!mounted.current) { if (result.ok) await window.productivityApi.files.disconnect({ sessionId: result.value.sessionId }); return; }
     setBusy(false);
     if (!result.ok) { setError(result.error.message); setNotice(null); return; }
-    liveSession.current = result.value; setSession(result.value); setNotice(null); await list(result.value.sessionId, '/');
+    liveSession.current = result.value; setSession(result.value); setNotice(null); await list(result.value.sessionId, result.value.initialPath);
   }
   async function disconnect() { const current = session; liveSession.current = null; if (current) await window.productivityApi.files.disconnect({ sessionId: current.sessionId }); setSession(null); setEntries([]); setPath('/'); setProgress(null); }
   async function review(accept: boolean) {

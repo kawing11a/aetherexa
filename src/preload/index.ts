@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { ProductivityApi } from '@shared/contracts';
 
 const productivityApi: ProductivityApi = {
@@ -24,6 +24,15 @@ const productivityApi: ProductivityApi = {
     remove: (input) => ipcRenderer.invoke('sftp:remove', input),
     upload: (input) => ipcRenderer.invoke('sftp:upload', input),
     download: (input) => ipcRenderer.invoke('sftp:download', input),
+    listLocal: (input) => ipcRenderer.invoke('sftp:local-list', input),
+    chooseLocalDirectory: () => ipcRenderer.invoke('sftp:choose-local-directory', {}),
+    uploadPaths: (input) => ipcRenderer.invoke('sftp:upload-paths', input),
+    downloadToDirectory: (input) => ipcRenderer.invoke('sftp:download-local', input),
+    details: (input) => ipcRenderer.invoke('sftp:details', input),
+    archive: (input) => ipcRenderer.invoke('sftp:archive', input),
+    prepareDrag: (input) => ipcRenderer.invoke('sftp:prepare-drag', input),
+    startDrag: (input) => ipcRenderer.invoke('sftp:start-drag', input),
+    getDroppedPaths: (files) => files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
     onTransferProgress: (listener) => subscribe('sftp:transfer-progress', listener),
   },
   files: {

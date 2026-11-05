@@ -9,6 +9,7 @@ export type RemoteFileProfile = Extract<FileTransferProfile, { host: string }>;
 export type RemoteFileProviderContext = Omit<FileProviderContext, 'profile'> & { profile: RemoteFileProfile };
 export interface FileProviderSession {
   readonly profile: FileTransferProfile;
+  readonly initialPath?: string;
   list(path: string): Promise<Result<RemoteEntry[]>>;
   makeDirectory(path: string): Promise<Result<void>>;
   remove(path: string, directory: boolean): Promise<Result<void>>;

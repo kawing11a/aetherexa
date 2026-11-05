@@ -77,6 +77,8 @@ export type HostKeyNotice = { requestId: string; profileId: string; host: string
 export type TerminalDescriptor = { terminalId: string; sessionId: string; local: boolean };
 export type TerminalData = { terminalId: string; data: string };
 export type SftpEntry = { name: string; type: 'file' | 'directory' | 'link' | 'other'; size: number; modifiedAt: number; permissions: number };
+export type SftpLocalEntry = SftpEntry & { path: string };
+export type SftpDetails = { name: string; path: string; type: SftpEntry['type']; size: number; modifiedAt: number; permissions: number; owner: number; group: number };
 export type TransferProgress = { transferId: string; direction: 'upload' | 'download'; fileName: string; transferredBytes: number; totalBytes: number | null; state: 'running' | 'completed' | 'failed' };
 export interface SshApi {
   connect(input: { profileId: string }): Promise<Result<SshSessionDescriptor>>;
@@ -93,13 +95,22 @@ export interface SshApi {
   onDisconnect(listener: (event: { sessionId: string; message: string }) => void): () => void;
 }
 export interface SftpApi {
-  open(input: { sessionId: string }): Promise<Result<{ sftpId: string }>>;
+  open(input: { sessionId: string }): Promise<Result<{ sftpId: string; initialPath: string }>>;
   list(input: { sftpId: string; path: string }): Promise<Result<SftpEntry[]>>;
   makeDirectory(input: { sftpId: string; path: string }): Promise<Result<void>>;
   rename(input: { sftpId: string; from: string; to: string }): Promise<Result<void>>;
   remove(input: { sftpId: string; path: string; directory: boolean }): Promise<Result<void>>;
   upload(input: { sftpId: string; remotePath: string }): Promise<Result<TransferProgress>>;
   download(input: { sftpId: string; remotePath: string }): Promise<Result<TransferProgress>>;
+  listLocal(input: { path?: string }): Promise<Result<{ path: string; entries: SftpLocalEntry[] }>>;
+  chooseLocalDirectory(): Promise<Result<string | null>>;
+  uploadPaths(input: { sftpId: string; remoteDirectory: string; localPaths: string[] }): Promise<Result<TransferProgress[]>>;
+  downloadToDirectory(input: { sftpId: string; remotePath: string; localDirectory: string }): Promise<Result<TransferProgress>>;
+  details(input: { sftpId: string; remotePath: string }): Promise<Result<SftpDetails>>;
+  archive(input: { sftpId: string; remotePath: string; format: 'zip' | 'tar' | 'tar.gz' }): Promise<Result<void>>;
+  prepareDrag(input: { sftpId: string; remotePath: string }): Promise<Result<{ dragId: string }>>;
+  startDrag(input: { dragId?: string; localPath?: string }): Promise<Result<void>>;
+  getDroppedPaths(files: File[]): string[];
   onTransferProgress(listener: (event: TransferProgress) => void): () => void;
 }
 
