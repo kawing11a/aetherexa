@@ -7,6 +7,7 @@ const output = path.resolve(process.argv[2] ?? path.join(root, 'release', 'THIRD
 const sbomPath = path.resolve(process.argv[3] ?? path.join(root, 'release', 'aetherexa-sbom.spdx.json'));
 const sbom = JSON.parse(readFileSync(sbomPath, 'utf8'));
 const packages = new Map();
+const licenseNoticePattern = /^(?:licenses?(?:[._-].*)?|licences?(?:[._-].*)?|copying(?:[._-].*)?|copyright(?:notice)?(?:[._-].*)?|notices?(?:text)?(?:[._-].*)?|third[._-]?party[._-]?(?:licenses?|notices?(?:text)?)(?:[._-].*)?|.+[-_](?:license|licence)(?:[._-].*)?)$/i;
 
 for (const item of sbom.packages) {
   const location = item.packageFileName;
@@ -32,7 +33,7 @@ for (const item of sbom.packages) {
       const filePath = path.join(directory, entry.name);
       if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
         directories.push(filePath);
-      } else if (entry.isFile() && /^(?:licenses?(?:[._-].*)?|licences?(?:[._-].*)?|copying(?:[._-].*)?|notice(?:[._-].*)?|third_party_licenses(?:[._-].*)?)$/i.test(entry.name)) {
+      } else if (entry.isFile() && licenseNoticePattern.test(entry.name)) {
         noticeFiles.push(filePath);
       }
     }
