@@ -9,11 +9,11 @@ const protocols: { value: Protocol; label: string; detail: string }[] = [
   { value: 's3', label: 'AWS S3', detail: 'Bucket access using default chain or static keys' },
 ];
 
-export function FileTypeWizard({ onChoose, onBack, onClose }: { onChoose(protocol: Protocol): void; onBack(): void; onClose(): void }) {
+export function FileTypeWizard({ onChoose, onBack, onClose, protocols: allowed, stepLabel = 'Step 2 of 3' }: { onChoose(protocol: Protocol): void; onBack(): void; onClose(): void; protocols?: readonly Protocol[]; stepLabel?: string }) {
   return <div className="dialog-scrim" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="profile-dialog connection-wizard" role="dialog" aria-modal="true" aria-labelledby="file-type-title">
-      <div className="dialog-heading"><div><p className="eyebrow">New connection · Step 2 of 3</p><h2 id="file-type-title">Choose a data protocol</h2><p className="dialog-intro">Each transfer mode keeps its own saved setup and draft fields.</p></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}>×</button></div>
-      <div className="wizard-target-list">{protocols.map((protocol) => <button className="wizard-target" key={protocol.value} onClick={() => onChoose(protocol.value)}><span className="wizard-target-icon">{protocol.value === 's3' ? 'S3' : '⇄'}</span><span><strong>{protocol.label}</strong><small>{protocol.detail}</small></span><span className="wizard-target-arrow">›</span></button>)}</div>
+      <div className="dialog-heading"><div><p className="eyebrow">New connection · {stepLabel}</p><h2 id="file-type-title">Choose a {allowed ? 'file transfer' : 'data'} protocol</h2><p className="dialog-intro">Each transfer mode keeps its own saved setup and draft fields.</p></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}>×</button></div>
+      <div className="wizard-target-list">{protocols.filter((protocol) => !allowed || allowed.includes(protocol.value)).map((protocol) => <button className="wizard-target" key={protocol.value} onClick={() => onChoose(protocol.value)}><span className="wizard-target-icon">{protocol.value === 's3' ? 'S3' : '⇄'}</span><span><strong>{protocol.label}</strong><small>{protocol.detail}</small></span><span className="wizard-target-arrow">›</span></button>)}</div>
       <div className="dialog-footer"><button className="button button-subtle" onClick={onBack}>Back</button><button className="button button-subtle" onClick={onClose}>Cancel</button></div>
     </section>
   </div>;
