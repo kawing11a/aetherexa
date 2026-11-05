@@ -1,7 +1,7 @@
 {
   "name": "aetherexa",
   "productName": "Aetherexa",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "author": "kawing11a",
   "description": "An open-source desktop workspace for databases, SSH, and SFTP.",
   "main": "./out/main/index.js",
