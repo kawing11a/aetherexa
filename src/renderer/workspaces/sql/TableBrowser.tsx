@@ -13,6 +13,7 @@ function filterValue(value: string, kind: FilterKind): WireValue {
   const significant = value.replace(/^[+-]/, '').split(/[eE]/)[0].replace('.', '').replace(/^0+|0+$/g, '');
   if (significant.length > 15 && /[.eE]/.test(value)) throw new Error('Use text to preserve this exact decimal.');
   const parsed = Number(value);
+  if (parsed === 0 && significant.length > 0) throw new Error('This number is too small to represent. Use text to preserve it.');
   if (!Number.isFinite(parsed) || Number.isInteger(parsed) && !Number.isSafeInteger(parsed)) throw new Error('Use a finite number within the safe integer range, or use text for an exact decimal.');
   return parsed;
 }

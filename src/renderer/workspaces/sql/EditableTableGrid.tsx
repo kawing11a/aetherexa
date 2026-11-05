@@ -32,6 +32,7 @@ function parseDraft(draft: Draft): WireValue {
   const significant = draft.value.replace(/^[+-]/, '').split(/[eE]/)[0].replace('.', '').replace(/^0+|0+$/g, '');
   if (significant.length > 15 && /[.eE]/.test(draft.value)) throw new Error('Use text to preserve this exact decimal.');
   const number = Number(draft.value);
+  if (number === 0 && significant.length > 0) throw new Error('This number is too small to represent. Use text to preserve it.');
   if (!Number.isFinite(number) || Number.isInteger(number) && !Number.isSafeInteger(number)) throw new Error('Enter a finite number within the safe integer range, or use text for an exact decimal.');
   return number;
 }

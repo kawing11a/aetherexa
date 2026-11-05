@@ -14,6 +14,7 @@ function literalValue(item: DraftColumn): WireValue {
   const significant = item.value.replace(/^[+-]/, '').split(/[eE]/)[0].replace('.', '').replace(/^0+|0+$/g, '');
   if (significant.length > 15 && /[.eE]/.test(item.value)) throw new Error('Use text to preserve this exact decimal.');
   const value = Number(item.value);
+  if (value === 0 && significant.length > 0) throw new Error('This number is too small to represent. Use text to preserve it.');
   if (!Number.isFinite(value) || Number.isInteger(value) && !Number.isSafeInteger(value)) throw new Error('Use a finite number within the safe integer range, or select text for an exact decimal.');
   return value;
 }
