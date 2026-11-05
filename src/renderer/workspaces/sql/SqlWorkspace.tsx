@@ -42,10 +42,10 @@ export function SqlWorkspace({ profile }: { profile: DatabaseProfile }) {
   async function cancelQuery() {
     if (state.phase !== 'ready' || !running) return;
     const operationId = running;
+    cancelledOperations.current.add(operationId);
     const result = await window.productivityApi.database.cancel({ sessionId: state.session.sessionId, operationId });
     setRunning((current) => current === operationId ? null : current);
     if (!result.ok && result.error.code === 'completion-unknown') {
-      cancelledOperations.current.add(operationId);
       setPage(null);
       setError(result.error.message);
       reconnect();

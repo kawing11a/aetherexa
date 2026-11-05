@@ -70,12 +70,12 @@ export const readTablePageSchema = session.extend({ request: z.object({
 export const previewTableChangeSchema = session.extend({ change: tableChangeSchema }).strict();
 export const applyTableChangeSchema = session.extend({ planId: z.string().uuid(), confirmDestructive: z.boolean() }).strict();
 export const insertRowSchema = session.extend({ input: z.object({ table: tableIdentifierSchema, values: rowValues }).strict() }).strict()
-  .refine(({ input }) => Object.values(input.values).reduce((total, value) => total + valueBytes(value), 0) <= MAX_TABLE_REQUEST_VALUE_BYTES, 'Values exceed the request size limit.');
+  .refine(({ input }) => Object.values(input.values).reduce<number>((total, value) => total + valueBytes(value), 0) <= MAX_TABLE_REQUEST_VALUE_BYTES, 'Values exceed the request size limit.');
 export const updateRowSchema = session.extend({ input: z.object({ table: tableIdentifierSchema, key: keyValues, expectedValues: keyValues, values: keyValues }).strict() }).strict()
-  .refine(({ input }) => [input.key, input.expectedValues, input.values].reduce((total, values) => total + Object.values(values).reduce((sum, value) => sum + valueBytes(value), 0), 0) <= MAX_TABLE_REQUEST_VALUE_BYTES, 'Values exceed the request size limit.')
+  .refine(({ input }) => [input.key, input.expectedValues, input.values].reduce<number>((total, values) => total + Object.values(values).reduce<number>((sum, value) => sum + valueBytes(value), 0), 0) <= MAX_TABLE_REQUEST_VALUE_BYTES, 'Values exceed the request size limit.')
   .refine(({ input }) => Object.keys(input.values).length === Object.keys(input.expectedValues).length && Object.keys(input.values).every((column) => Object.hasOwn(input.expectedValues, column)), 'Each edited column requires its old value.');
 export const deleteRowSchema = session.extend({ input: z.object({ table: tableIdentifierSchema, key: keyValues }).strict() }).strict()
-  .refine(({ input }) => Object.values(input.key).reduce((total, value) => total + valueBytes(value), 0) <= MAX_TABLE_REQUEST_VALUE_BYTES, 'Values exceed the request size limit.');
+  .refine(({ input }) => Object.values(input.key).reduce<number>((total, value) => total + valueBytes(value), 0) <= MAX_TABLE_REQUEST_VALUE_BYTES, 'Values exceed the request size limit.');
 
 export const sshConnectSchema = z.object({ profileId: z.string().uuid() }).strict();
 export const hostKeyReviewSchema = z.object({ requestId: z.string().uuid(), accept: z.boolean(), replaceChangedKey: z.boolean().optional() }).strict();
