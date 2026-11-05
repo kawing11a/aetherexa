@@ -1,6 +1,6 @@
 import mysql from 'mysql2';
 import { createHash } from 'node:crypto';
-import type { Pool, PoolConnection, FieldPacket, RowDataPacket, ResultSetHeader } from 'mysql2';
+import type { Pool, PoolConnection, PoolOptions, FieldPacket, RowDataPacket, ResultSetHeader } from 'mysql2';
 import type { PoolConnection as PromiseConnection } from 'mysql2/promise';
 import type { DatabaseProfile, SecretBundle } from '@shared/profiles';
 import type { Result } from '@shared/contracts';
@@ -14,25 +14,34 @@ const capabilities = { namespaces: true, objects: true, queryMode: 'sql' as cons
 export class MysqlAdapter implements DatabaseAdapter {
   readonly engine = 'mysql' as const;
   async connect(profile: DatabaseProfile, secrets: SecretBundle): Promise<Result<DatabaseSession>> {
+    let pool: Pool | undefined;
+    let tablePool: Pool | undefined;
     try {
-      const pool = mysql.createPool({ host: requiredHost(profile), port: requiredPort(profile, 3306), user: requiredUsername(profile), password: password(secrets), database: optionalDatabase(profile), ssl: tlsEnabled(profile) ? { rejectUnauthorized: true } : undefined, waitForConnections: true, connectionLimit: 2, connectTimeout: 10_000, supportBigNumbers: true, bigNumberStrings: true, flags: ['FOUND_ROWS'] });
-      await new Promise<void>((resolve, reject) => pool.getConnection((error, connection) => { if (error) reject(error); else { connection.release(); resolve(); } }));
+      const options: PoolOptions = { host: requiredHost(profile), port: requiredPort(profile, 3306), user: requiredUsername(profile), password: password(secrets), database: optionalDatabase(profile), ssl: tlsEnabled(profile) ? { rejectUnauthorized: true } : undefined, waitForConnections: true, connectionLimit: 2, connectTimeout: 10_000, supportBigNumbers: true, bigNumberStrings: true, flags: ['FOUND_ROWS'] };
+      const queryPool = mysql.createPool(options);
+      pool = queryPool;
+      const managedPool = mysql.createPool({ ...options, connectionLimit: 1 });
+      tablePool = managedPool;
+      await new Promise<void>((resolve, reject) => queryPool.getConnection((error, connection) => { if (error) reject(error); else { connection.release(); resolve(); } }));
       const session: SqlSession = {
         kind: 'sql', engine: this.engine, capabilities,
-        tables: createTableOperations(pool),
-        async close() { await new Promise<void>((resolve, reject) => pool.end((error) => error ? reject(error) : resolve())); },
-        async listNamespaces() { return capture(async () => { const [rows] = await pool.promise().query('SELECT SCHEMA_NAME AS name FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME LIMIT 10000'); return (rows as Record<string, unknown>[]).map((row) => ({ name: String(row.name), kind: 'schema' as const })); }); },
-        async listObjects(namespace) { return capture(async () => { const [rows] = await pool.promise().execute('SELECT TABLE_NAME AS name, TABLE_TYPE AS type FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME LIMIT 10000', [namespace]); return (rows as Record<string, unknown>[]).map((row) => { return { name: String(row.name), kind: String(row.type).toUpperCase() === 'VIEW' ? 'view' as const : 'table' as const }; }); }); },
+        tables: createTableOperations(managedPool),
+        async close() { await Promise.all([queryPool.promise().end(), managedPool.promise().end()]); },
+        async listNamespaces() { return capture(async () => { const [rows] = await queryPool.promise().query('SELECT SCHEMA_NAME AS name FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME LIMIT 10000'); return (rows as Record<string, unknown>[]).map((row) => ({ name: String(row.name), kind: 'schema' as const })); }); },
+        async listObjects(namespace) { return capture(async () => { const [rows] = await queryPool.promise().execute('SELECT TABLE_NAME AS name, TABLE_TYPE AS type FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME LIMIT 10000', [namespace]); return (rows as Record<string, unknown>[]).map((row) => { return { name: String(row.name), kind: String(row.type).toUpperCase() === 'VIEW' ? 'view' as const : 'table' as const }; }); }); },
         async runSql(sql, limit, signal) {
           try {
-            const connection = await new Promise<PoolConnection>((resolve, reject) => pool.getConnection((error, value) => error ? reject(error) : resolve(value)));
+            const connection = await new Promise<PoolConnection>((resolve, reject) => queryPool.getConnection((error, value) => error ? reject(error) : resolve(value)));
             try { return ok(await runStreamingQuery(connection, sql, limit, signal)); }
             finally { connection.release(); }
           } catch (error) { return { ok: false, error: normalizeConnectorError(error) }; }
         },
       };
       return ok<DatabaseSession>(session);
-    } catch (error) { return { ok: false, error: normalizeConnectorError(error) }; }
+    } catch (error) {
+      await Promise.allSettled([pool?.promise().end(), tablePool?.promise().end()]);
+      return { ok: false, error: normalizeConnectorError(error) };
+    }
   }
 }
 
@@ -73,6 +82,7 @@ type MysqlColumn = RowDataPacket & {
 };
 type MysqlTable = {
   definition: TableDefinition;
+  engine: string;
   columns: Map<string, MysqlColumn>;
   primaryKey: MysqlColumn[];
   fingerprint: string;
@@ -100,36 +110,64 @@ function createTableOperations(pool: Pool): SqlTableOperations {
   async function useConnection<T>(operation: (connection: PromiseConnection, raw: PoolConnection) => Promise<T>): Promise<Result<T>> {
     return capture(async () => {
       const connection = await new Promise<PoolConnection>((resolve, reject) => pool.getConnection((error, value) => error ? reject(error) : resolve(value)));
-      try { return await operation(connection.promise(), connection); }
+      try {
+        await connection.promise().query('SET SESSION lock_wait_timeout = 5, innodb_lock_wait_timeout = 5');
+        return await operation(connection.promise(), connection);
+      }
       finally { connection.release(); }
+    });
+  }
+  async function mutateRow(table: TableIdentifier, operation: (connection: PromiseConnection, metadata: MysqlTable) => Promise<ResultSetHeader>): Promise<Result<{ affectedRows: number }>> {
+    return useConnection(async (connection, raw) => {
+      const candidate = await requireTable(connection, table);
+      await connection.beginTransaction();
+      try {
+        await connection.query(`SELECT 1 FROM ${tableReference(candidate.definition.table)} LIMIT 0`);
+        const metadata = await requireTable(connection, candidate.definition.table);
+        if (metadata.engine !== 'InnoDB') throw new ConnectorError('unsupported-feature', 'Row writes require an InnoDB table so failed changes can be rolled back.');
+        requirePrimaryKey(metadata);
+        const result = await operation(connection, metadata);
+        if (result.warningStatus) throw new ConnectorError('write-warning', 'The server returned a warning. The row change was rolled back.');
+        if (result.affectedRows !== 1) throw new ConnectorError(result.affectedRows === 0 ? 'stale-row' : 'unexpected-row-count', result.affectedRows === 0
+          ? 'The row no longer matches. Reload the table before editing again.' : 'The change did not affect exactly one row and was rolled back.');
+        try { await connection.commit(); }
+        catch { throw new ConnectorError('completion-unknown', 'The commit result could not be confirmed. Reload the table before another write.'); }
+        return { affectedRows: result.affectedRows };
+      } catch (error) {
+        try { await connection.rollback(); } catch { raw.destroy(); }
+        if (error instanceof ConnectorError && error.code === 'completion-unknown') raw.destroy();
+        throw error;
+      }
     });
   }
   return {
     describeTable: (table) => useConnection(async (connection) => (await requireTable(connection, table)).definition),
     listColumnTypes: async () => ok(columnTypes.map(({ name, label, argumentCount, minArgument, maxArgument }) => ({ name, label, argumentCount, minArgument, maxArgument }))),
     readTablePage: (request) => useConnection((connection, raw) => readTablePage(connection, raw, request)),
-    planTableChange: (change) => useConnection((connection) => planTableChange(connection, change)),
+    planTableChange: (change) => useConnection((connection) => change.kind === 'create'
+      ? planTableChange(connection, change)
+      : withTableLock(connection, change.table, 'READ', () => planTableChange(connection, change))),
     applyTableChange: (plan) => useConnection(async (connection) => {
-      const current = await planTableChange(connection, plan.change);
-      if (current.schemaFingerprint !== plan.schemaFingerprint ||
-          current.destructive !== plan.destructive || JSON.stringify(current.statements) !== JSON.stringify(plan.statements)) {
-        throw new ConnectorError('schema-changed', 'The table or connection settings changed. Preview the change again.');
-      }
-      await executeMutation(connection, plan.statements[0], []);
+      const apply = async () => {
+        const current = await planTableChange(connection, plan.change);
+        if (current.schemaFingerprint !== plan.schemaFingerprint ||
+            current.destructive !== plan.destructive || JSON.stringify(current.statements) !== JSON.stringify(plan.statements)) {
+          throw new ConnectorError('schema-changed', 'The table or connection settings changed. Preview the change again.');
+        }
+        await executeMutation(connection, plan.statements[0], [], false);
+      };
+      if (plan.change.kind === 'create') await apply();
+      else await withTableLock(connection, plan.change.table, 'WRITE', apply);
     }),
-    insertRow: (input) => useConnection(async (connection) => {
-      const table = await requireTable(connection, input.table);
-      requirePrimaryKey(table);
+    insertRow: (input) => mutateRow(input.table, async (connection, table) => {
       const entries = Object.entries(input.values);
       const values = entries.map(([name, value]) => writableValue(requireColumn(table, name), value));
       const columns = entries.map(([name]) => quoteIdentifier(name)).join(', ');
       const parameters = values.map(() => '?').join(', ');
       await requireStrictMode(connection);
-      const result = await executeMutation(connection, `INSERT INTO ${tableReference(table.definition.table)} (${columns}) VALUES (${parameters})`, values);
-      return { affectedRows: result.affectedRows };
+      return executeMutation(connection, `INSERT INTO ${tableReference(table.definition.table)} (${columns}) VALUES (${parameters})`, values, true);
     }),
-    updateRow: (input) => useConnection(async (connection) => {
-      const table = await requireTable(connection, input.table);
+    updateRow: (input) => mutateRow(input.table, async (connection, table) => {
       const key = keyPredicate(table, input.key);
       const names = Object.keys(input.values);
       if (!names.length || names.length !== Object.keys(input.expectedValues).length ||
@@ -142,20 +180,13 @@ function createTableOperations(pool: Pool): SqlTableOperations {
         ? `CAST(CONVERT(${quoteIdentifier(name)} USING utf8mb4) AS BINARY) <=> CAST(CONVERT(? USING utf8mb4) AS BINARY)`
         : `${quoteIdentifier(name)} <=> ${comparisonParameter(requireColumn(table, name))}`);
       await requireStrictMode(connection);
-      const result = await executeMutation(connection,
+      return executeMutation(connection,
         `UPDATE ${tableReference(table.definition.table)} SET ${names.map((name) => `${quoteIdentifier(name)} = ?`).join(', ')} WHERE ${key.sql} AND ${predicates.join(' AND ')}`,
-        [...values, ...key.values, ...expected]);
-      if (result.affectedRows === 0) throw new ConnectorError('stale-row', 'The row changed or was deleted. Reload the table before editing again.');
-      if (result.affectedRows !== 1) throw new ConnectorError('completion-unknown', 'The update result could not be confirmed. Reload the table before another write.');
-      return { affectedRows: result.affectedRows };
+        [...values, ...key.values, ...expected], true);
     }),
-    deleteRow: (input) => useConnection(async (connection) => {
-      const table = await requireTable(connection, input.table);
+    deleteRow: (input) => mutateRow(input.table, async (connection, table) => {
       const key = keyPredicate(table, input.key);
-      const result = await executeMutation(connection, `DELETE FROM ${tableReference(table.definition.table)} WHERE ${key.sql}`, key.values);
-      if (result.affectedRows === 0) throw new ConnectorError('stale-row', 'The row was already deleted. Reload the table.');
-      if (result.affectedRows !== 1) throw new ConnectorError('completion-unknown', 'The delete result could not be confirmed. Reload the table before another write.');
-      return { affectedRows: result.affectedRows };
+      return executeMutation(connection, `DELETE FROM ${tableReference(table.definition.table)} WHERE ${key.sql}`, key.values, true);
     }),
   };
 }
@@ -188,6 +219,7 @@ async function lookupTable(connection: PromiseConnection, requested: TableIdenti
   };
   return {
     definition,
+    engine: String(tables[0].engine),
     columns: new Map(columns.map((column) => [column.name, column])),
     primaryKey: columns.filter((column) => column.primaryKeyOrder !== null).sort((a, b) => Number(a.primaryKeyOrder) - Number(b.primaryKeyOrder)),
     fingerprint: digest({ table: tables[0], columns }),
@@ -276,6 +308,7 @@ async function readTablePage(connection: PromiseConnection, raw: PoolConnection,
     const name = quoteIdentifier(column.name);
     if (filter.operator === 'is-null') return `${name} IS NULL`;
     if (filter.operator === 'is-not-null') return `${name} IS NOT NULL`;
+    if (!('value' in filter)) throw new ConnectorError('invalid-input', 'This filter requires a value.');
     if (typeof filter.value === 'string' && Buffer.byteLength(filter.value, 'utf8') > 4096) throw new ConnectorError('invalid-input', 'Text filters must not exceed 4 KiB.');
     if (filter.operator === 'contains') {
       if (typeof filter.value !== 'string' || !textTypes.has(column.dataType)) throw new ConnectorError('invalid-input', 'Contains filters require a text column and text value.');
@@ -361,7 +394,7 @@ async function planTableChange(connection: PromiseConnection, change: TableChang
       if (table.primaryKey.some((column) => column.name === change.column)) throw new ConnectorError('unsupported-feature', 'The table designer cannot change an existing primary key.');
       statement = `ALTER TABLE ${reference} DROP COLUMN ${quoteIdentifier(change.column)}`;
     }
-    schemaFingerprint = digest({ table: table.fingerprint, context });
+    schemaFingerprint = digest({ table: table.fingerprint, identity: await innodbIdentity(connection, table, context), context });
   }
   return { change, statements: [statement], destructive: change.kind === 'rename-column' || change.kind === 'drop-column', schemaFingerprint };
 }
@@ -369,6 +402,38 @@ async function planTableChange(connection: PromiseConnection, change: TableChang
 function requireNewColumn(table: MysqlTable, name: string): void {
   validateIdentifier(name);
   if ([...table.columns.keys()].some((current) => current.toLowerCase() === name.toLowerCase())) throw new ConnectorError('invalid-input', 'A column with this name already exists.');
+}
+
+async function withTableLock<T>(connection: PromiseConnection, table: TableIdentifier, mode: 'READ' | 'WRITE', operation: () => Promise<T>): Promise<T> {
+  const candidate = await requireTable(connection, table);
+  try { await connection.query(`LOCK TABLES ${tableReference(candidate.definition.table)} ${mode}`); }
+  catch (error) { connection.destroy(); throw error; }
+  try { return await operation(); }
+  finally {
+    try { await connection.query('UNLOCK TABLES'); }
+    catch { connection.destroy(); }
+  }
+}
+
+async function innodbIdentity(connection: PromiseConnection, table: MysqlTable, context: SqlContext): Promise<string> {
+  if (table.engine !== 'InnoDB') throw new ConnectorError('unsupported-feature', 'Schema plans require a verifiable InnoDB table identity.');
+  const dictionary = !/MariaDB/i.test(context.version) && Number(context.version.split('.')[0]) >= 8 ? 'INNODB_TABLES' : 'INNODB_SYS_TABLES';
+  let rows: RowDataPacket[];
+  try {
+    [rows] = await connection.execute<RowDataPacket[]>(
+      `SELECT CAST(TABLE_ID AS CHAR) AS id FROM INFORMATION_SCHEMA.${dictionary} WHERE NAME = ?`,
+      [table.definition.table.namespace + '/' + table.definition.table.name]);
+  } catch (error) {
+    const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+    if (code === 'ER_SPECIFIC_ACCESS_DENIED_ERROR' || code === 'ER_TABLEACCESS_DENIED_ERROR' || code === 'ER_UNKNOWN_TABLE' || code === 'ER_NO_SUCH_TABLE') {
+      throw new ConnectorError('unsupported-feature', 'Schema plans require access to the InnoDB table identity metadata.');
+    }
+    throw error;
+  }
+  if (rows.length !== 1 || typeof rows[0].id !== 'string' || !/^\d+$/.test(rows[0].id)) {
+    throw new ConnectorError('unsupported-feature', 'A unique persistent InnoDB table identity is unavailable for this table.');
+  }
+  return rows[0].id;
 }
 
 function columnDefinition(column: NewTableColumn, context: SqlContext): string {
@@ -413,10 +478,10 @@ function quoteIdentifier(value: string): string { return '`' + value.replaceAll(
 function tableReference(table: TableIdentifier): string { return `${quoteIdentifier(table.namespace)}.${quoteIdentifier(table.name)}`; }
 function digest(value: unknown): string { return createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
 
-async function executeMutation(connection: PromiseConnection, statement: string, values: Scalar[]): Promise<ResultSetHeader> {
+async function executeMutation(connection: PromiseConnection, statement: string, values: Scalar[], transactional: boolean): Promise<ResultSetHeader> {
   try {
     const [result] = await connection.execute<ResultSetHeader>(statement, values);
-    if (result.warningStatus) throw new ConnectorError('completion-unknown', 'The server completed the write with warnings. Reload the table before another write.');
+    if (result.warningStatus && !transactional) throw new ConnectorError('completion-unknown', 'The server completed the write with warnings. Reload the table before another write.');
     return result;
   } catch (error) {
     if (error instanceof ConnectorError) throw error;
