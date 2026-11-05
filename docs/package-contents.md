@@ -10,5 +10,5 @@ The app checks `update.electronjs.org` after launch and hourly when installed fr
 
 Pushing a semantic-version tag such as `v0.1.0` starts [the Windows release workflow](../.github/workflows/release.yml). The workflow builds the MSI, Squirrel Setup.exe, and portable ZIP, then attaches those files together with `RELEASES`, the full `.nupkg`, an SPDX software bill of materials, and third-party license notices to the GitHub Release. It uses the repository's `GITHUB_TOKEN`; no personal token is stored in the app.
 
-The workflow generates the SBOM from the installed production dependency tree. `scripts/generate-third-party-notices.cjs` writes each SBOM dependency's declared license and any bundled license or notice files. See [dependency decisions](dependencies.md) for the direct dependency list and license choices.
+The workflow generates the SBOM from the full installed dependency tree, including build tools and the Electron runtime. `scripts/generate-third-party-notices.cjs` writes each SBOM dependency's declared license and bundled license or notice files, including nested vendor files. See [dependency decisions](dependencies.md) for the direct dependency list and license choices.
 

@@ -24,10 +24,20 @@ for (const item of sbom.packages) {
     : Array.isArray(manifest.licenses)
       ? manifest.licenses.map((item) => item.type ?? 'unknown').join(' OR ')
       : 'Not declared';
-  const notices = readdirSync(packageRoot, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /^(license|licence|copying|notice)(?:[._-].*)?$/i.test(entry.name))
-    .map((entry) => ({ name: entry.name, text: readFileSync(path.join(packageRoot, entry.name), 'utf8').trim() }))
-    .filter((entry) => entry.text);
+  const noticeFiles = [];
+  const directories = [packageRoot];
+  while (directories.length) {
+    const directory = directories.pop();
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const filePath = path.join(directory, entry.name);
+      if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
+        directories.push(filePath);
+      } else if (entry.isFile() && /^(?:licenses?(?:[._-].*)?|licences?(?:[._-].*)?|copying(?:[._-].*)?|notice(?:[._-].*)?|third_party_licenses(?:[._-].*)?)$/i.test(entry.name)) {
+        noticeFiles.push(filePath);
+      }
+    }
+  }
+  const notices = noticeFiles.sort().map((filePath) => ({ name: path.relative(packageRoot, filePath), text: readFileSync(filePath, 'utf8').trim() })).filter((entry) => entry.text);
   packages.set(id, { name, version, license, notices });
 }
 
