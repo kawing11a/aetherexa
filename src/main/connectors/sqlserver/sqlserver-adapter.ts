@@ -128,9 +128,42 @@ function checkKey(meta: ServerTable, values: Record<string, WireValue>): ServerC
   if (Object.keys(values).length !== keys.length || keys.some((key) => !Object.hasOwn(values, key.name) || values[key.name] === null)) return failure('All primary-key values are required.');
   return keys;
 }
+function nullType(info: ServerColumn): sql.ISqlType {
+  switch (info.baseType) {
+    case 'tinyint': return sql.TinyInt();
+    case 'smallint': return sql.SmallInt();
+    case 'int': return sql.Int();
+    case 'bigint': return sql.BigInt();
+    case 'bit': return sql.Bit();
+    case 'float': return sql.Float();
+    case 'real': return sql.Real();
+    case 'decimal': return sql.Decimal(info.precision, info.scale);
+    case 'numeric': return sql.Numeric(info.precision, info.scale);
+    case 'money': return sql.Money();
+    case 'smallmoney': return sql.SmallMoney();
+    case 'char': return sql.Char(info.maxLength);
+    case 'varchar': return sql.VarChar(info.maxLength < 0 ? sql.MAX : info.maxLength);
+    case 'nchar': return sql.NChar(info.maxLength / 2);
+    case 'nvarchar': return sql.NVarChar(info.maxLength < 0 ? sql.MAX : info.maxLength / 2);
+    case 'text': return sql.Text();
+    case 'ntext': return sql.NText();
+    case 'binary': return sql.Binary();
+    case 'varbinary': return sql.VarBinary(info.maxLength < 0 ? sql.MAX : info.maxLength);
+    case 'image': return sql.Image();
+    case 'date': return sql.Date();
+    case 'datetime': return sql.DateTime();
+    case 'smalldatetime': return sql.SmallDateTime();
+    case 'datetime2': return sql.DateTime2(info.scale);
+    case 'datetimeoffset': return sql.DateTimeOffset(info.scale);
+    case 'time': return sql.Time(info.scale);
+    case 'uniqueidentifier': return sql.UniqueIdentifier();
+    case 'xml': return sql.Xml();
+    default: return failure('Null assignment is unsupported for this column type.', 'unsupported-feature');
+  }
+}
 function bind(request: sql.Request, name: string, value: WireValue, info: ServerColumn): string {
   const type = info.baseType;
-  if (value === null) { request.input(name, sql.NVarChar(sql.MAX), null); return '@' + name; }
+  if (value === null) { request.input(name, nullType(info), null); return '@' + name; }
   if (type in intRanges && typeof value === 'number' && Number.isInteger(value) && value >= intRanges[type][0] && value <= intRanges[type][1]) request.input(name, sql.Int, value);
   else if (type === 'bit' && typeof value === 'boolean') request.input(name, sql.Bit, value);
   else if ((type === 'float' || type === 'real') && typeof value === 'number' && Number.isFinite(value)) request.input(name, type === 'real' ? sql.Real : sql.Float, value);
@@ -257,16 +290,17 @@ function createTableOperations(pool: sql.ConnectionPool): SqlTableOperations {
         if (filter.value === null || typeof filter.value === 'string' && Buffer.byteLength(filter.value, 'utf8') > 4096) return failure('Invalid equality filter.');
         return name + ' = ' + bind(request, 'filter' + index, filter.value, info);
       });
+      const source = '[aetherexa_rows].';
       const order: string[] = [];
       if (input.sort) {
         const info = column(meta, input.sort.column);
         if (!['asc', 'desc'].includes(input.sort.direction) || ['text', 'ntext', 'image', 'xml', 'geography', 'geometry', 'hierarchyid'].includes(info.baseType)) return failure('This column cannot be used for sorting.', 'unsupported-feature');
-        order.push(quote(info.name) + (input.sort.direction === 'asc' ? ' ASC' : ' DESC'));
+        order.push(source + quote(info.name) + (input.sort.direction === 'asc' ? ' ASC' : ' DESC'));
       }
-      for (const key of primary(meta)) if (key.name !== input.sort?.column) order.push(quote(key.name) + ' ASC');
+      for (const key of primary(meta)) if (key.name !== input.sort?.column) order.push(source + quote(key.name) + ' ASC');
       if (!order.length) order.push('(SELECT NULL)');
       request.input('offset', sql.Int, input.offset).input('take', sql.Int, input.limit + 1);
-      const query = 'SELECT ' + meta.columns.map((item, index) => quote(item.name) + ' AS ' + quote('c' + index)).join(', ') + ' FROM ' + reference(input.table) + (predicates.length ? ' WHERE ' + predicates.join(' AND ') : '') + ' ORDER BY ' + order.join(', ') + ' OFFSET @offset ROWS FETCH NEXT @take ROWS ONLY';
+      const query = 'SELECT ' + meta.columns.map((item, index) => source + quote(item.name) + ' AS ' + quote('c' + index)).join(', ') + ' FROM ' + reference(input.table) + ' AS [aetherexa_rows]' + (predicates.length ? ' WHERE ' + predicates.join(' AND ') : '') + ' ORDER BY ' + order.join(', ') + ' OFFSET @offset ROWS FETCH NEXT @take ROWS ONLY';
       const builder = new BoundedPageBuilder(meta.definition.columns.map((item) => ({ name: item.name, typeHint: item.typeName })), input.limit);
       let rowCount = 0; let exceeded = false;
       request.stream = true;
