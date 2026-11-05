@@ -2,7 +2,7 @@ import type { AppError, Result } from './contracts.js';
 import type { HostKeyNotice, TransferProgress } from './database.js';
 
 export type RemoteEntry = { name: string; type: 'file' | 'directory' | 'link' | 'other'; size: number | null; modifiedAt: number | null };
-export type FileSessionDescriptor = { sessionId: string; profileId: string; protocol: string; host: string };
+export type FileSessionDescriptor = { sessionId: string; profileId: string; protocol: string; host: string; initialPath: string };
 export interface FilesApi {
   connect(input: { profileId: string }): Promise<Result<FileSessionDescriptor>>;
   disconnect(input: { sessionId: string }): Promise<Result<void>>;

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { ProductivityApi } from '@shared/contracts';
 
 const productivityApi: ProductivityApi = {
@@ -24,6 +24,15 @@ const productivityApi: ProductivityApi = {
     remove: (input) => ipcRenderer.invoke('sftp:remove', input),
     upload: (input) => ipcRenderer.invoke('sftp:upload', input),
     download: (input) => ipcRenderer.invoke('sftp:download', input),
+    listLocal: (input) => ipcRenderer.invoke('sftp:local-list', input),
+    chooseLocalDirectory: () => ipcRenderer.invoke('sftp:choose-local-directory', {}),
+    uploadPaths: (input) => ipcRenderer.invoke('sftp:upload-paths', input),
+    downloadToDirectory: (input) => ipcRenderer.invoke('sftp:download-local', input),
+    details: (input) => ipcRenderer.invoke('sftp:details', input),
+    archive: (input) => ipcRenderer.invoke('sftp:archive', input),
+    prepareDrag: (input) => ipcRenderer.invoke('sftp:prepare-drag', input),
+    startDrag: (input) => ipcRenderer.invoke('sftp:start-drag', input),
+    getDroppedPaths: (files) => files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
     onTransferProgress: (listener) => subscribe('sftp:transfer-progress', listener),
   },
   files: {
@@ -45,6 +54,14 @@ const productivityApi: ProductivityApi = {
     listNamespaces: (input) => ipcRenderer.invoke('database:list-namespaces', input),
     listObjects: (input) => ipcRenderer.invoke('database:list-objects', input),
     runSql: (input) => ipcRenderer.invoke('database:run-sql', input),
+    describeTable: (input) => ipcRenderer.invoke('database:describe-table', input),
+    listColumnTypes: (input) => ipcRenderer.invoke('database:list-column-types', input),
+    readTablePage: (input) => ipcRenderer.invoke('database:read-table-page', input),
+    previewTableChange: (input) => ipcRenderer.invoke('database:preview-table-change', input),
+    applyTableChange: (input) => ipcRenderer.invoke('database:apply-table-change', input),
+    insertRow: (input) => ipcRenderer.invoke('database:insert-row', input),
+    updateRow: (input) => ipcRenderer.invoke('database:update-row', input),
+    deleteRow: (input) => ipcRenderer.invoke('database:delete-row', input),
     findDocuments: (input) => ipcRenderer.invoke('database:find-documents', input),
     scanKeys: (input) => ipcRenderer.invoke('database:scan-keys', input),
     executeRedis: (input) => ipcRenderer.invoke('database:execute-redis', input),

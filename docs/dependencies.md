@@ -16,6 +16,7 @@ Initial dependency set for the Windows desktop shell. Versions are exact pins fr
 | `@vitejs/plugin-react` | 6.2.1 | MIT | React transform |
 | `typescript` | 6.0.3 | Apache-2.0 | Type checking and source language |
 | `zod` | 4.6.7 | MIT | Runtime validation |
+| `sql-formatter` | 15.9.0 | MIT | Format SQL for supported database dialects |
 | `@types/node` | 26.6.6 | MIT | Node type declarations |
 | `@types/react` / `@types/react-dom` | 19.3.0 | MIT | React type declarations |
 | `glob` (override) | 14.0.2 | BlueOak-1.0.0 | Patched Electron packaging transitive dependency |
@@ -29,10 +30,12 @@ Initial dependency set for the Windows desktop shell. Versions are exact pins fr
 | `redis` | 6.3.1 | MIT | Redis protocol driver |
 | `memjs` | 1.3.2 | MIT | Memcached protocol driver |
 | `ssh2` | 1.17.0 | MIT | SSH transport and SFTP subsystem |
+| `archiver` | 8.0.0 | MIT | Create ZIP, TAR, and TAR.GZ streams for remote SFTP archives |
 | `basic-ftp` | 6.2.5 | MIT | Passive FTP and explicit/implicit FTPS client |
 | `@aws-sdk/client-s3` | 3.1161.0 | Apache-2.0 | AWS S3 object and prefix operations |
 | `@aws-sdk/lib-storage` | 3.1161.0 | Apache-2.0 | Multipart S3 uploads with progress and abort support |
 | `@types/ssh2` | 1.15.6 | MIT | SSH client types |
+| `@types/archiver` | 8.0.0 | MIT | Archive type declarations |
 | `@xterm/xterm` | 6.0.0 | MIT | Terminal emulator UI |
 | `@xterm/addon-fit` | 0.11.0 | MIT | Terminal sizing |
 | `@xterm/addon-search` | 0.16.0 | MIT | Terminal search |

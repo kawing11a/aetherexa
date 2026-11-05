@@ -13,6 +13,7 @@ import type { SshKeyManager } from '@main/ssh/ssh-key-manager.js';
 import type { KnownHostsStore } from '@main/ssh/known-hosts-store.js';
 import type { RemoteEntry } from '@shared/files';
 import type { Result } from '@shared/contracts';
+import { initialRemotePath, sftpErrorMessage } from '@main/sftp/sftp-errors.js';
 
 type PendingReview = { ownerId: number; profileId: string; host: string; port: number; fingerprint: string; changed: boolean; verify(valid: boolean): void; timer: NodeJS.Timeout };
 
@@ -40,7 +41,9 @@ export class SftpProvider implements FileProvider {
       if (!connected.ok) return connected;
       const opened = await new Promise<SFTPWrapper | undefined>((resolve) => client.sftp((error, sftp) => resolve(error ? undefined : sftp)));
       if (!opened) { client.end(); return fail('sftp-open-failed', 'The SFTP subsystem could not be opened.'); }
-      return { ok: true, value: makeSession(sftpContext, client, opened) };
+      let initialPath: string;
+      try { initialPath = await initialRemotePath(opened); } catch { client.end(); return fail('sftp-open-failed', 'The SFTP connection closed while resolving the remote home directory.'); }
+      return { ok: true, value: makeSession(sftpContext, client, opened, initialPath) };
     } catch {
       client.end();
       return fail('sftp-connect-failed', 'The SFTP connection could not be completed.');
@@ -94,15 +97,16 @@ export class SftpProvider implements FileProvider {
   }
 }
 
-function makeSession(context: RemoteFileProviderContext, client: SshClient, sftp: SFTPWrapper): FileProviderSession {
+function makeSession(context: RemoteFileProviderContext, client: SshClient, sftp: SFTPWrapper, initialPath: string): FileProviderSession {
   const { profile, window, webContents } = context;
   return {
     profile,
+    initialPath,
     close: () => { sftp.end(); client.end(); },
     async list(inputPath) {
       const path = validPath(inputPath); if (!path.ok) return path;
       return new Promise((resolve) => sftp.readdir(path.value, (error, items) => {
-        if (error) { resolve(fail('file-list-failed', 'The remote directory could not be listed.')); return; }
+        if (error) { resolve(fail('file-list-failed', sftpErrorMessage('directory listing', path.value, error))); return; }
         resolve({ ok: true, value: items.slice(0, 10_000).filter((item) => item.filename !== '.' && item.filename !== '..').map((item): RemoteEntry => ({ name: item.filename, type: entryType(item.attrs), size: item.attrs.size, modifiedAt: item.attrs.mtime * 1000 })) });
       }));
     },
@@ -112,7 +116,10 @@ function makeSession(context: RemoteFileProviderContext, client: SshClient, sftp
       const target = validPath(inputPath); if (!target.ok) return target;
       const picked = await dialog.showOpenDialog(window, { properties: ['openFile'], title: 'Choose a file to upload' });
       if (picked.canceled || !picked.filePaths[0]) return fail('transfer-cancelled', 'The upload was cancelled.');
-      const localPath = picked.filePaths[0]; const remotePath = target.value.endsWith('/') ? posix.join(target.value, basename(localPath)) : target.value;
+      const localPath = picked.filePaths[0];
+      const targetStats = await new Promise<Stats | null>((resolveStat) => sftp.lstat(target.value, (error, attrs) => resolveStat(error ? null : attrs)));
+      if (targetStats?.isSymbolicLink()) return fail('upload-target-invalid', 'Uploads cannot replace a remote symbolic link.');
+      const remotePath = targetStats?.isDirectory() ? posix.join(target.value, basename(localPath)) : target.value;
       const exists = await sftpExists(sftp, remotePath); if (!exists.ok) return exists;
       if (exists.value && (await dialog.showMessageBox(window, { type: 'warning', title: 'Replace remote file?', message: 'A file with this name already exists.', detail: basename(remotePath), buttons: ['Replace', 'Cancel'], defaultId: 1, cancelId: 1 })).response !== 0) return fail('transfer-cancelled', 'The upload was cancelled.');
       let total: number; try { total = (await stat(localPath)).size; } catch { return fail('transfer-read-failed', 'The selected file could not be read.'); }
@@ -136,7 +143,7 @@ function makeSession(context: RemoteFileProviderContext, client: SshClient, sftp
   };
 }
 
-function validPath(input: string): Result<string> { if (!input || input.includes('\0') || input.split('/').some((part) => part === '..')) return fail('invalid-path', 'The remote path is invalid.'); return { ok: true, value: posix.normalize(input.startsWith('/') ? input : '/' + input) }; }
+function validPath(input: string): Result<string> { if (!input || input.includes('\0') || input.split('/').some((part) => part === '..')) return fail('invalid-path', 'The remote path is invalid.'); return { ok: true, value: posix.normalize(input) }; }
 function entryType(attrs: Stats): RemoteEntry['type'] { if (attrs.isDirectory()) return 'directory'; if (attrs.isFile()) return 'file'; if (attrs.isSymbolicLink()) return 'link'; return 'other'; }
 function callback(operation: (done: (error?: Error | null) => void) => void, code: string): Promise<Result<void>> { return new Promise((resolve) => operation((error) => resolve(error ? fail(code, 'The remote file operation could not be completed.') : { ok: true, value: undefined }))); }
 function sftpExists(sftp: SFTPWrapper, path: string): Promise<Result<boolean>> { return new Promise((resolve) => sftp.stat(path, (error) => { if (!error) resolve({ ok: true, value: true }); else if ('code' in error && error.code === 2) resolve({ ok: true, value: false }); else resolve(fail('file-stat-failed', 'The remote destination could not be checked safely.')); })); }

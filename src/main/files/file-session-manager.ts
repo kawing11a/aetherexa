@@ -23,7 +23,7 @@ export class FileSessionManager {
       const provider: FileProvider = profile.protocol === 'sftp' ? this.sftp : profile.protocol === 's3' ? this.s3 : this.ftp;
       const connected = await provider.connect({ profile, secrets, ownerId, window, webContents });
       if (!connected.ok) return connected;
-      const sessionId = randomUUID(); const descriptor = { sessionId, profileId, protocol: profile.protocol, host: profile.protocol === 's3' ? profile.bucket : 'host' in profile ? profile.host : '' };
+      const sessionId = randomUUID(); const descriptor = { sessionId, profileId, protocol: profile.protocol, host: profile.protocol === 's3' ? profile.bucket : 'host' in profile ? profile.host : '', initialPath: connected.value.initialPath ?? '/' };
       this.sessions.set(sessionId, { ownerId, session: connected.value, descriptor });
       return { ok: true, value: descriptor };
     } catch { return fail('file-connect-failed', 'The file-transfer connection could not be completed.'); }

@@ -13,6 +13,49 @@ export type DatabaseObject = { name: string; kind: 'table' | 'view' | 'function'
 export type ColumnDescriptor = { name: string; typeHint: string | null };
 export type WireValue = null | boolean | number | string | Uint8Array | WireValue[] | { [key: string]: WireValue };
 export type QueryPage = { columns: ColumnDescriptor[]; rows: WireValue[][]; truncated: boolean; truncationReason?: 'row-limit' | 'cell-limit' | 'page-byte-limit' };
+export type TableIdentifier = { namespace: string; name: string };
+export type TableColumn = {
+  name: string;
+  typeName: string;
+  nullable: boolean;
+  defaultExpression: string | null;
+  primaryKeyOrder: number | null;
+};
+export type TableDefinition = { table: TableIdentifier; columns: TableColumn[] };
+export type TableFilter =
+  | { column: string; operator: 'equals' | 'contains'; value: WireValue }
+  | { column: string; operator: 'is-null' | 'is-not-null' };
+export type TablePageRequest = {
+  table: TableIdentifier;
+  offset: number;
+  limit: number;
+  sort?: { column: string; direction: 'asc' | 'desc' };
+  filters: TableFilter[];
+};
+export type TablePage = {
+  definition: TableDefinition;
+  rows: WireValue[][];
+  offset: number;
+  limit: number;
+  hasNext: boolean;
+};
+export type ColumnTypeOption = { name: string; label: string; argumentCount: number; minArgument: number; maxArgument: number };
+export type NewTableColumn = {
+  name: string;
+  type: { name: string; arguments: number[] };
+  nullable: boolean;
+  default: { kind: 'none' } | { kind: 'literal'; value: WireValue } | { kind: 'current-timestamp' };
+};
+export type TableChange =
+  | { kind: 'create'; table: TableIdentifier; columns: NewTableColumn[]; primaryKey: string[] }
+  | { kind: 'add-column'; table: TableIdentifier; column: NewTableColumn }
+  | { kind: 'rename-column'; table: TableIdentifier; from: string; to: string }
+  | { kind: 'drop-column'; table: TableIdentifier; column: string };
+export type TableChangePreview = { planId: string; statements: string[]; destructive: boolean };
+export type ApplyTableChange = { planId: string; confirmDestructive: boolean };
+export type RowInsert = { table: TableIdentifier; values: Record<string, WireValue> };
+export type RowUpdate = { table: TableIdentifier; key: Record<string, WireValue>; expectedValues: Record<string, WireValue>; values: Record<string, WireValue> };
+export type RowDelete = { table: TableIdentifier; key: Record<string, WireValue> };
 export type DocumentPage = { documents: Record<string, WireValue>[]; truncated: boolean };
 export type KeyPage = { keys: string[]; nextCursor: string | null };
 export type RedisReply = { kind: 'scalar' | 'array' | 'map' | 'error'; value: WireValue };
@@ -34,6 +77,8 @@ export type HostKeyNotice = { requestId: string; profileId: string; host: string
 export type TerminalDescriptor = { terminalId: string; sessionId: string; local: boolean };
 export type TerminalData = { terminalId: string; data: string };
 export type SftpEntry = { name: string; type: 'file' | 'directory' | 'link' | 'other'; size: number; modifiedAt: number; permissions: number };
+export type SftpLocalEntry = SftpEntry & { path: string };
+export type SftpDetails = { name: string; path: string; type: SftpEntry['type']; size: number; modifiedAt: number; permissions: number; owner: number; group: number };
 export type TransferProgress = { transferId: string; direction: 'upload' | 'download'; fileName: string; transferredBytes: number; totalBytes: number | null; state: 'running' | 'completed' | 'failed' };
 export interface SshApi {
   connect(input: { profileId: string }): Promise<Result<SshSessionDescriptor>>;
@@ -50,13 +95,22 @@ export interface SshApi {
   onDisconnect(listener: (event: { sessionId: string; message: string }) => void): () => void;
 }
 export interface SftpApi {
-  open(input: { sessionId: string }): Promise<Result<{ sftpId: string }>>;
+  open(input: { sessionId: string }): Promise<Result<{ sftpId: string; initialPath: string }>>;
   list(input: { sftpId: string; path: string }): Promise<Result<SftpEntry[]>>;
   makeDirectory(input: { sftpId: string; path: string }): Promise<Result<void>>;
   rename(input: { sftpId: string; from: string; to: string }): Promise<Result<void>>;
   remove(input: { sftpId: string; path: string; directory: boolean }): Promise<Result<void>>;
   upload(input: { sftpId: string; remotePath: string }): Promise<Result<TransferProgress>>;
   download(input: { sftpId: string; remotePath: string }): Promise<Result<TransferProgress>>;
+  listLocal(input: { path?: string }): Promise<Result<{ path: string; entries: SftpLocalEntry[] }>>;
+  chooseLocalDirectory(): Promise<Result<string | null>>;
+  uploadPaths(input: { sftpId: string; remoteDirectory: string; localPaths: string[] }): Promise<Result<TransferProgress[]>>;
+  downloadToDirectory(input: { sftpId: string; remotePath: string; localDirectory: string }): Promise<Result<TransferProgress>>;
+  details(input: { sftpId: string; remotePath: string }): Promise<Result<SftpDetails>>;
+  archive(input: { sftpId: string; remotePath: string; format: 'zip' | 'tar' | 'tar.gz' }): Promise<Result<void>>;
+  prepareDrag(input: { sftpId: string; remotePath: string }): Promise<Result<{ dragId: string }>>;
+  startDrag(input: { dragId?: string; localPath?: string }): Promise<Result<void>>;
+  getDroppedPaths(files: File[]): string[];
   onTransferProgress(listener: (event: TransferProgress) => void): () => void;
 }
 
@@ -67,6 +121,14 @@ export interface DatabaseApi {
   listNamespaces(input: { sessionId: string }): Promise<Result<Namespace[]>>;
   listObjects(input: { sessionId: string; namespace: string }): Promise<Result<DatabaseObject[]>>;
   runSql(input: { sessionId: string; operationId: string; sql: string; limit: number }): Promise<Result<QueryPage>>;
+  describeTable(input: { sessionId: string; table: TableIdentifier }): Promise<Result<TableDefinition>>;
+  listColumnTypes(input: { sessionId: string }): Promise<Result<ColumnTypeOption[]>>;
+  readTablePage(input: { sessionId: string; request: TablePageRequest }): Promise<Result<TablePage>>;
+  previewTableChange(input: { sessionId: string; change: TableChange }): Promise<Result<TableChangePreview>>;
+  applyTableChange(input: { sessionId: string } & ApplyTableChange): Promise<Result<void>>;
+  insertRow(input: { sessionId: string; input: RowInsert }): Promise<Result<{ affectedRows: number }>>;
+  updateRow(input: { sessionId: string; input: RowUpdate }): Promise<Result<{ affectedRows: number }>>;
+  deleteRow(input: { sessionId: string; input: RowDelete }): Promise<Result<{ affectedRows: number }>>;
   findDocuments(input: { sessionId: string; query: MongoFindInput }): Promise<Result<DocumentPage>>;
   scanKeys(input: { sessionId: string; pattern: string; cursor: string; count: number }): Promise<Result<KeyPage>>;
   executeRedis(input: { sessionId: string; tokens: string[] }): Promise<Result<RedisReply>>;

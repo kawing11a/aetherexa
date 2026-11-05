@@ -17,6 +17,7 @@ export class OracleAdapter implements DatabaseAdapter {
       const service = typeof profile.options.database === 'string' && profile.options.database.trim() ? profile.options.database.trim() : 'ORCL';
       const protocol = tlsEnabled(profile) ? 'tcps' : 'tcp';
       const connection = await oracledb.getConnection({ user: requiredUsername(profile), password: password(secrets), connectString: protocol + '://' + host + ':' + port + '/' + service });
+      connection.callTimeout = 30_000;
       const session: SqlSession = {
         kind: 'sql', engine: this.engine, capabilities,
         async close() { await connection.close(); },
@@ -24,8 +25,10 @@ export class OracleAdapter implements DatabaseAdapter {
         async listObjects(namespace) { return capture(async () => { const result = await connection.execute("SELECT table_name AS name, 'table' AS kind FROM all_tables WHERE owner = :owner UNION ALL SELECT view_name AS name, 'view' AS kind FROM all_views WHERE owner = :owner ORDER BY name FETCH FIRST 10000 ROWS ONLY", { owner: namespace.toUpperCase() }, { outFormat: oracledb.OUT_FORMAT_OBJECT }); return objectRows(result.rows).map((row) => ({ name: String(row.NAME ?? row.name), kind: String(row.KIND ?? row.kind) === 'view' ? 'view' as const : 'table' as const })); }); },
         async runSql(sqlText, limit, signal) {
           let resultSet: oracledb.ResultSet<unknown> | undefined;
+          const abort = () => { void connection.break().catch(() => undefined); };
           try {
             if (signal?.aborted) throw new ConnectorError('cancelled', 'The query was cancelled.');
+            signal?.addEventListener('abort', abort, { once: true });
             const result = await connection.execute(sqlText, [], { resultSet: true, outFormat: oracledb.OUT_FORMAT_OBJECT, fetchArraySize: 256, autoCommit: true });
             resultSet = result.resultSet;
             const columns: ColumnDescriptor[] = (result.metaData ?? []).map((field) => ({ name: field.name, typeHint: String(field.dbTypeName ?? '') }));
@@ -40,7 +43,10 @@ export class OracleAdapter implements DatabaseAdapter {
             }
             return ok({ ...builder.finish(), ...(result.rowsAffected === undefined ? {} : { affectedRows: result.rowsAffected }) });
           } catch (error) { return { ok: false, error: normalizeConnectorError(error) }; }
-          finally { await resultSet?.close().catch(() => undefined); }
+          finally {
+            signal?.removeEventListener('abort', abort);
+            await resultSet?.close().catch(() => undefined);
+          }
         },
       };
       return ok<DatabaseSession>(session);
