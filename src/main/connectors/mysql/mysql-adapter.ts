@@ -139,7 +139,8 @@ function createTableOperations(pool: Pool): SqlTableOperations {
       const values = names.map((name) => writableValue(requireColumn(table, name), input.values[name]));
       const expected = names.map((name) => columnValue(requireColumn(table, name), input.expectedValues[name]));
       const predicates = names.map((name, index) => typeof expected[index] === 'string' && textTypes.has(requireColumn(table, name).dataType)
-        ? `BINARY ${quoteIdentifier(name)} <=> BINARY ?` : `${quoteIdentifier(name)} <=> ${comparisonParameter(requireColumn(table, name))}`);
+        ? `CAST(CONVERT(${quoteIdentifier(name)} USING utf8mb4) AS BINARY) <=> CAST(CONVERT(? USING utf8mb4) AS BINARY)`
+        : `${quoteIdentifier(name)} <=> ${comparisonParameter(requireColumn(table, name))}`);
       await requireStrictMode(connection);
       const result = await executeMutation(connection,
         `UPDATE ${tableReference(table.definition.table)} SET ${names.map((name) => `${quoteIdentifier(name)} = ?`).join(', ')} WHERE ${key.sql} AND ${predicates.join(' AND ')}`,
@@ -322,8 +323,8 @@ async function requireStrictMode(connection: PromiseConnection): Promise<void> {
 async function planTableChange(connection: PromiseConnection, change: TableChange): Promise<SqlTableChangePlan> {
   const context = await sqlContext(connection);
   const maria = /MariaDB/i.test(context.version);
-  const versions = context.version.match(/\d+\.\d+\.\d+/g);
-  const version = (maria ? versions?.at(-1) : versions?.[0])?.split('.').map(Number);
+  const versionPrefix = maria ? context.version.replace(/^5\.5\.5-/, '') : context.version;
+  const version = /^(\d+)\.(\d+)\.(\d+)/.exec(versionPrefix)?.slice(1).map(Number);
   const versionNumber = version ? version[0] * 10000 + version[1] * 100 + version[2] : 0;
   if (versionNumber < (maria ? 100200 : 50700)) throw new ConnectorError('unsupported-feature', 'Table design requires MySQL 5.7 or MariaDB 10.2 or later.');
   const table = await lookupTable(connection, change.table);
